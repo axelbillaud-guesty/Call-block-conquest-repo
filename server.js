@@ -5,11 +5,12 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Firestore } from "@google-cloud/firestore";
-import { HEX, HEXIDX, neighbors, ptsFor, SHIELD_MS } from "./public/map.js";
+import { HEXIDX, ptsFor, claimBlock } from "./public/map.js";
 
 const PORT = process.env.PORT || 8080;
-const ADMIN_CODE = process.env.ADMIN_CODE || "";
+const ADMIN_CODE = Buffer.from(process.env.ADMIN_CODE || "");
 const TZ = process.env.GAME_TZ || "Europe/Madrid";   // which calendar day a contest belongs to
+const MAX_ROWS = 5000;                                // accounts per player
 const DEFAULT_REPS = ["Faïda","Carmen","Claudio","Felix","Julia","Faisal","Caitlin","Mariana","Oliver","Naod","Michael","Nicole","Laura","Justin","Gabriela","Millie"];
 
 // ---------- storage ----------
@@ -20,26 +21,64 @@ const fs = process.env.CBC_MEMORY==="1"
   ? new (await import("./memstore.js")).MemFirestore()
   : new Firestore({ ignoreUndefinedProperties: true });
 const ROOT = fs.collection("callblockconquest").doc("main");
+const OWNER_REF = ROOT.collection("meta").doc("owner");
 const roundsCol = () => ROOT.collection("rounds");
 const roundRef = id => roundsCol().doc(id);
 const contactsRef = slug => ROOT.collection("contacts").doc(slug);
+
+// Only one server instance may write. During a redeploy the old and new revisions overlap
+// briefly: the newest instance claims ownership at boot, and every write checks it inside a
+// transaction, so an outgoing instance can never overwrite the new one's state.
+const OWNER = crypto.randomUUID();
+let retired = false;
+class Retired extends Error {}
+async function persist(write){
+  if (retired) throw new Retired();
+  await fs.runTransaction(async tx => {
+    const o = await tx.get(OWNER_REF);
+    if (o.exists && o.data().id !== OWNER){ retire(); throw new Retired(); }
+    write(tx);
+  });
+}
+function retire(){
+  if (retired) return;
+  retired = true;
+  console.log("a newer instance took over; handing off clients");
+  for (const res of clients) res.end();      // browsers reconnect to the new instance
+  clients.clear();
+}
+setInterval(()=>{ if (!retired) OWNER_REF.get().then(o=>{ if (o.exists && o.data().id!==OWNER) retire(); }).catch(()=>{}); }, 5000);
 
 // ---------- state ----------
 let S = { game:{ status:"lobby", round:null, startAt:0, endAt:0 }, roster:{ reps:[], headers:[], fields:{}, at:0 }, bindings:{} };
 let R = null;                    // current round: { id, meta, logs: Map, hexes:{}, spent:{} }
 const contacts = new Map();      // slug -> rows, loaded on demand
+const unsaved = new Map();       // round id -> finished round not yet stored (retried)
 
 const now = () => Date.now();
 const sha = s => crypto.createHash("sha256").update(String(s)).digest("hex");
-const slugify = s => String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60) || "rep";
+const slugify = s => String(s).toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60) || "rep";
 const repOf = slug => S.roster.reps.find(r=>r.slug===slug);
-const isLive = () => S.game.status==="live" && now() < S.game.endAt;
-const newRoundId = () => "r" + now().toString(36);
+const isLive = () => !retired && S.game.status==="live" && now() < S.game.endAt && R?.meta?.status==="live";
+const newRoundId = () => "r" + now().toString(36) + crypto.randomBytes(2).toString("hex");
 const dayOf = ms => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year:"numeric", month:"2-digit", day:"2-digit" }).format(ms);
+const cap = s => s[0].toUpperCase() + s.slice(1) + ".";
 
 function emptyRound(id){ return { id, meta:null, logs:new Map(), hexes:{}, spent:{} }; }
+// A slug is in use if it's on the roster or already has play in the current round
+// (so removing a player and re-adding the name starts them clean).
+function slugInUse(slug){
+  return !!repOf(slug) || R.spent[slug]!==undefined
+    || [...R.logs.values()].some(l=>l.rep===slug) || Object.values(R.hexes).some(h=>h.o===slug);
+}
+function freshSlug(name, taken = new Set()){
+  const base = slugify(name); let slug = base, i = 2;
+  while (slugInUse(slug) || taken.has(slug)) slug = `${base}-${i++}`;
+  return slug;
+}
 
 async function load(){
+  await OWNER_REF.set({ id: OWNER, at: now() });
   const snap = await ROOT.get();
   if (snap.exists){
     const d = snap.data();
@@ -47,7 +86,7 @@ async function load(){
   } else {
     S.roster = { reps: DEFAULT_REPS.map(name=>({ slug: slugify(name), name })), headers:[], fields:{}, at: now() };
     S.game = { status:"lobby", round:newRoundId(), startAt:0, endAt:0 };
-    await ROOT.set(S);
+    await persist(tx=>tx.set(ROOT, S));
   }
   R = emptyRound(S.game.round);
   if (S.game.round){
@@ -61,15 +100,19 @@ async function load(){
 
 // Debounced writes: the root doc and the round doc change often during play.
 let rootTimer=null, roundTimer=null;
-function saveRoot(){ clearTimeout(rootTimer); rootTimer=setTimeout(()=>ROOT.set(S).catch(e=>console.error("saveRoot", e)), 300); }
+function saveRoot(){
+  clearTimeout(rootTimer);
+  rootTimer=setTimeout(()=>persist(tx=>tx.set(ROOT, S)).catch(e=>{ if (!(e instanceof Retired)) console.error("saveRoot", e); }), 300);
+}
 function saveRound(){
   if (!R?.meta) return;            // rounds are stored once they have started
-  const r = R; clearTimeout(roundTimer);
-  roundTimer=setTimeout(()=>roundRef(r.id).set({ meta:r.meta, hexes:r.hexes, spent:r.spent }, { merge:true }).catch(e=>console.error("saveRound", e)), 800);
+  clearTimeout(roundTimer);
+  roundTimer=setTimeout(()=>flushRound().catch(e=>{ if (!(e instanceof Retired)) console.error("saveRound", e); }), 800);
 }
 async function flushRound(){
   clearTimeout(roundTimer);
-  if (R?.meta) await roundRef(R.id).set({ meta:R.meta, hexes:R.hexes, spent:R.spent }, { merge:true });
+  const r = R;
+  if (r?.meta && r.meta.status==="live") await persist(tx=>tx.set(roundRef(r.id), { meta:r.meta, hexes:r.hexes, spent:r.spent }, { merge:true }));
 }
 
 // ---------- scoring ----------
@@ -87,23 +130,31 @@ function summarize(r){
   return { rows:list, winner: list[0]?.slug || null };
 }
 function earned(slug){ let s=0; for (const l of R.logs.values()) if (l.rep===slug) s+=l.pts||0; return s; }
-function territory(slug){ let n=0; for (const h of Object.values(R.hexes)) if (h.o===slug) n++; return n; }
 
-// Close out the current round: freeze it and store its final standings for History.
-async function finalize(endAt = Math.min(now(), S.game.endAt || now())){
-  if (!R?.meta || R.meta.status==="done") return;
-  R.meta.endAt = endAt; R.meta.status = "done";
-  const summary = summarize(R);
-  await flushRound();
-  await roundRef(R.id).set({ summary }, { merge:true });
+// Close a round: it stops accepting plays immediately (synchronously, before any await),
+// then its final standings are stored for History. Failed writes are retried until they land.
+function closeRound(r, endAt = Math.min(now(), S.game.endAt || now())){
+  if (!r?.meta || r.meta.status!=="live") return Promise.resolve();
+  r.meta.endAt = endAt; r.meta.status = "done";
+  unsaved.set(r.id, { meta:{ ...r.meta }, hexes:{ ...r.hexes }, spent:{ ...r.spent }, summary: summarize(r) });
+  return flushUnsaved();
 }
-setInterval(()=>{ if (S.game.status==="live" && now()>=S.game.endAt && R?.meta?.status==="live") finalize(S.game.endAt).then(broadcast).catch(e=>console.error("finalize", e)); }, 2000);
+async function flushUnsaved(){
+  for (const [id, data] of unsaved){
+    try { await persist(tx=>tx.set(roundRef(id), data, { merge:true })); unsaved.delete(id); }
+    catch(e){ if (e instanceof Retired) return; console.error("save finished round", id, e); }
+  }
+}
+setInterval(()=>{
+  if (S.game.status==="live" && now()>=S.game.endAt && R?.meta?.status==="live") { closeRound(R, S.game.endAt); broadcast(); }
+  if (unsaved.size) flushUnsaved();
+}, 2000);
 
 // ---------- live updates (server-sent events) ----------
 const clients = new Set();
 function publicState(){
   return {
-    now: now(), game: S.game, roster: S.roster,
+    now: now(), tz: TZ, game: S.game, roster: S.roster,
     taken: Object.fromEntries(Object.entries(S.bindings).map(([slug,b])=>[slug, b.id])),
     round: R ? { id:R.id, logs:[...R.logs.entries()], hexes:R.hexes, spent:R.spent } : null,
   };
@@ -123,6 +174,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.static(path.join(here, "public"), { setHeaders: res => res.setHeader("Cache-Control", "no-cache") }));
 
 const fail = (res, code, msg) => res.status(code).json({ error: msg });
+// Writes are refused once a newer instance owns the game; the browser retries against it.
+app.use("/api", (req,res,next)=> retired && req.method!=="GET" ? fail(res, 503, "The game was just updated. Try again.") : next());
 function me(req){
   const t = req.get("x-player"); if (!t) return null;
   const h = sha(t);
@@ -130,17 +183,17 @@ function me(req){
   return null;
 }
 function adminOk(req){
-  const c = req.get("x-admin") || "";
-  if (!ADMIN_CODE || c.length!==ADMIN_CODE.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(c), Buffer.from(ADMIN_CODE));
+  const c = Buffer.from(req.get("x-admin") || "");
+  return ADMIN_CODE.length > 0 && c.length===ADMIN_CODE.length && crypto.timingSafeEqual(c, ADMIN_CODE);
 }
 const admin = (req,res,next) => adminOk(req) ? next() : fail(res, 401, "Wrong admin code.");
 const wrap = fn => (req,res,next) => Promise.resolve(fn(req,res,next)).catch(next);
 
 app.get("/api/events", (req,res)=>{
+  if (retired) return fail(res, 503, "Reconnecting.");
   res.set({ "Content-Type":"text/event-stream", "Cache-Control":"no-cache, no-transform", "Connection":"keep-alive", "X-Accel-Buffering":"no" });
   res.flushHeaders();
-  res.write(`event: state\ndata: ${JSON.stringify(publicState())}\n\n`);
+  res.write(`retry: 2000\nevent: state\ndata: ${JSON.stringify(publicState())}\n\n`);
   clients.add(res);
   req.on("close", ()=> clients.delete(res));
 });
@@ -175,17 +228,20 @@ async function contactsOf(slug){
 app.post("/api/log", wrap(async (req,res)=>{
   const slug = me(req); if (!slug) return fail(res, 403, "Pick your name first.");
   const { cid } = req.body || {};
-  const c = !!req.body?.c, p = c && !!req.body?.p, m = c && !!req.body?.m;
+  const c = !!req.body?.c, m = c && !!req.body?.m, p = c && (!!req.body?.p || m);
   const rows = await contactsOf(slug);
   if (!rows.some(x=>x.cid===cid)) return fail(res, 404, "That account isn't on your list.");
   if (!isLive()) return fail(res, 409, "The block isn't running.");
-  const prev = R.logs.get(cid);
+  const r = R, prev = r.logs.get(cid);
   if (prev?.c) return fail(res, 409, "This call is already logged.");
-  const log = { rep: slug, c, p: p||m, m, pts: ptsFor(c, p||m, m), n: (prev?.n||0)+1, at: now() };
-  R.logs.set(cid, log);
-  const rid = R.id;
+  const log = { rep: slug, c, p, m, pts: ptsFor(c, p, m), n: (prev?.n||0)+1, at: now() };
+  r.logs.set(cid, log);
   broadcast();
-  await roundRef(rid).collection("logs").doc(cid).set(log);
+  try { await persist(tx=>tx.set(roundRef(r.id).collection("logs").doc(cid), log)); }
+  catch(e){
+    if (r.logs.get(cid)===log){ prev ? r.logs.set(cid, prev) : r.logs.delete(cid); broadcast(); }
+    throw e;
+  }
   res.json({ ok:true, log, gain: log.pts - (prev?.pts||0) });
 }));
 
@@ -194,15 +250,8 @@ app.post("/api/claim", (req,res)=>{
   const id = req.body?.hex;
   if (!HEXIDX.has(id)) return fail(res, 404, "Not a hex.");
   if (!isLive()) return fail(res, 409, "The block isn't running.");
-  const h = R.hexes[id];
-  if (h?.o===slug) return fail(res, 409, "Already yours.");
-  if (earned(slug) - (R.spent[slug]||0) < 1) return fail(res, 409, "Log calls to earn points.");
-  if (h && now()-h.t < SHIELD_MS) return fail(res, 409, "Shielded. Someone just took it.");
-  if (territory(slug)===0){
-    if (h && HEX.some(x=>!R.hexes[x.id])) return fail(res, 409, "Start on a free hex.");
-  } else if (!neighbors(HEX[HEXIDX.get(id)]).some(n=>R.hexes[n]?.o===slug)) {
-    return fail(res, 409, "Must touch your territory.");
-  }
+  const why = claimBlock(id, slug, x=>R.hexes[x], earned(slug) - (R.spent[slug]||0), now());
+  if (why) return fail(res, 409, why==="yours" ? "Already yours." : cap(why));
   R.hexes[id] = { o: slug, t: now() };
   R.spent[slug] = (R.spent[slug]||0) + 1;
   saveRound(); broadcast();
@@ -214,12 +263,12 @@ app.get("/api/history", wrap(async (req,res)=>{
   const day = /^\d{4}-\d{2}-\d{2}$/;
   const from = day.test(req.query.from) ? req.query.from : "0000-00-00";
   const to = day.test(req.query.to) ? req.query.to : "9999-99-99";
-  const snap = await roundsCol().where("meta.date", ">=", from).where("meta.date", "<=", to).get();
-  const out = snap.docs.map(d=>{
-    const x = d.data();
-    const summary = (R?.id===d.id && R.meta?.status==="live") ? summarize(R) : x.summary;
-    return { id:d.id, ...x.meta, ...(R?.id===d.id && R.meta ? R.meta : {}), summary: summary || { rows:[], winner:null } };
-  }).sort((a,b)=> b.startAt - a.startAt);
+  const snap = await roundsCol().where("meta.date", ">=", from).where("meta.date", "<=", to).select("meta", "summary").get();
+  const found = new Map(snap.docs.map(d=>[d.id, d.data()]));
+  for (const [id, x] of unsaved) if (x.meta.date>=from && x.meta.date<=to) found.set(id, x);
+  if (R?.meta?.status==="live" && R.meta.date>=from && R.meta.date<=to) found.set(R.id, { meta:R.meta, summary:summarize(R) });
+  const out = [...found].map(([id, x])=>({ id, ...x.meta, summary: x.summary || { rows:[], winner:null } }))
+    .sort((a,b)=> b.startAt - a.startAt);
   res.json({ rounds: out, tz: TZ });
 }));
 
@@ -228,55 +277,66 @@ app.post("/api/admin/check", admin, (req,res)=> res.json({ ok:true }));
 
 app.post("/api/admin/start", admin, wrap(async (req,res)=>{
   const mins = Math.max(5, Math.min(240, Math.round(+req.body?.mins || 60)));
-  if (R?.meta) { await finalize(); R = emptyRound(newRoundId()); }          // a started round becomes history
+  const closing = closeRound(R);                                  // a started round becomes history
+  if (R.meta) R = emptyRound(newRoundId());
   const t = now();
   S.game = { status:"live", round:R.id, startAt:t, endAt:t+mins*60000 };
   R.meta = { date: dayOf(t), startAt:t, endAt:S.game.endAt, mins, status:"live", reps: S.roster.reps.map(({slug,name})=>({slug,name})) };
-  await flushRound(); saveRoot(); broadcast();
+  broadcast(); saveRoot();
+  await closing; await flushRound();
   res.json({ ok:true });
 }));
 app.post("/api/admin/end", admin, wrap(async (req,res)=>{
   if (!isLive()) return fail(res, 409, "The block isn't running.");
   S.game = { ...S.game, endAt: now() };
-  await finalize(S.game.endAt); saveRoot(); broadcast();
+  const closing = closeRound(R, S.game.endAt);
+  broadcast(); saveRoot();
+  await closing;
   res.json({ ok:true });
 }));
 app.post("/api/admin/reset", admin, wrap(async (req,res)=>{
-  if (R?.meta) await finalize();
+  const closing = closeRound(R);
   S.game = { status:"lobby", round:newRoundId(), startAt:0, endAt:0 };
   R = emptyRound(S.game.round);
-  saveRoot(); broadcast();
+  broadcast(); saveRoot();
+  await closing;
   res.json({ ok:true });
 }));
 
-// Replace the call list. Rows are grouped by rep in the browser (CSV parsed there).
+// Replace the call list. Rows are grouped by player in the browser (the CSV is parsed there).
 app.post("/api/admin/import", admin, wrap(async (req,res)=>{
   const { headers, fields, groups } = req.body || {};
   if (!Array.isArray(groups) || !Array.isArray(headers)) return fail(res, 400, "Bad import.");
   const reps = [], seen = new Set();
   for (const g of groups){
     const name = String(g.name||"").trim().slice(0,80); if (!name) continue;
-    let slug = repOf(g.slug)?.slug || slugify(name);
-    while (seen.has(slug)) slug += "-2";
+    const slug = (repOf(g.slug) && !seen.has(g.slug)) ? g.slug : freshSlug(name, seen);
     seen.add(slug);
-    const rows = (g.rows||[]).slice(0,2000).map((r,i)=>({ cid:`${slug}--${i}`, row:r }));
+    const list = Array.isArray(g.rows) ? g.rows : [];
+    if (list.length > MAX_ROWS) return fail(res, 413, `${name} has ${list.length} accounts; the limit is ${MAX_ROWS} per player.`);
+    const rows = list.map((r,i)=>({ cid:`${slug}--${i}`, row:r }));
     if (Buffer.byteLength(JSON.stringify(rows)) > 900_000) return fail(res, 413, `${name}'s list is too big to store (shorten long note columns).`);
     reps.push({ slug, name, rows });
   }
-  if (R?.meta) await finalize();
+  // Plays stop now: the current round closes and a fresh lobby round opens.
+  const closing = closeRound(R);
+  S.game = { status:"lobby", round:newRoundId(), startAt:0, endAt:0 };
+  R = emptyRound(S.game.round);
+  broadcast();
   const old = await ROOT.collection("contacts").listDocuments();
-  for (const d of old) if (!seen.has(d.id)) await d.delete();
-  for (const r of reps) await contactsRef(r.slug).set({ rows: r.rows });
+  await Promise.all(reps.map(r=>persist(tx=>tx.set(contactsRef(r.slug), { rows: r.rows }))));
+  await Promise.all(old.filter(d=>!seen.has(d.id)).map(d=>persist(tx=>tx.delete(d))));
+  // Only once every list is stored does the roster switch over.
   contacts.clear();
   for (const slug of Object.keys(S.bindings)) if (!seen.has(slug)) delete S.bindings[slug];
   S.roster = { reps: reps.map(({slug,name})=>({slug,name})), headers: headers.map(String).slice(0,200), fields: fields||{}, at: now() };
-  S.game = { status:"lobby", round:newRoundId(), startAt:0, endAt:0 };
-  R = emptyRound(S.game.round);
   saveRoot(); broadcast();
+  await closing;
   res.json({ ok:true, reps: reps.length });
 }));
 app.post("/api/admin/clear-contacts", admin, wrap(async (req,res)=>{
-  for (const d of await ROOT.collection("contacts").listDocuments()) await d.delete();
+  const docs = await ROOT.collection("contacts").listDocuments();
+  await Promise.all(docs.map(d=>persist(tx=>tx.delete(d))));
   contacts.clear(); S.roster = { ...S.roster, at: now() }; saveRoot(); broadcast();
   res.json({ ok:true });
 }));
@@ -286,35 +346,42 @@ app.post("/api/admin/release", admin, (req,res)=>{
 app.post("/api/admin/player", admin, (req,res)=>{
   const name = String(req.body?.name||"").trim().slice(0,80);
   if (!name) return fail(res, 400, "Type a name.");
-  let slug = slugify(name); while (repOf(slug)) slug += "-2";
+  const slug = freshSlug(name);
   S.roster = { ...S.roster, reps: [...S.roster.reps, { slug, name }], at: now() };
   saveRoot(); broadcast(); res.json({ ok:true });
 });
 app.delete("/api/admin/player/:slug", admin, wrap(async (req,res)=>{
   const slug = req.params.slug;
   if (!repOf(slug)) return fail(res, 404, "No such player.");
+  await persist(tx=>tx.delete(contactsRef(slug)));
   S.roster = { ...S.roster, reps: S.roster.reps.filter(r=>r.slug!==slug), at: now() };
-  delete S.bindings[slug];
-  await contactsRef(slug).delete(); contacts.delete(slug);
+  delete S.bindings[slug]; contacts.delete(slug);
   saveRoot(); broadcast(); res.json({ ok:true });
 }));
 app.delete("/api/admin/round/:id", admin, wrap(async (req,res)=>{
   const id = req.params.id;
   if (!/^r[0-9a-z]+$/.test(id)) return fail(res, 400, "Bad round id.");
   if (R?.id===id && R.meta?.status==="live") return fail(res, 409, "End this block before deleting it.");
+  if (retired) return fail(res, 503, "The game was just updated. Try again.");
+  unsaved.delete(id);
   await fs.recursiveDelete(roundRef(id));          // only ever under callblockconquest/main/rounds
   if (R?.id===id) { R = emptyRound(newRoundId()); S.game = { status:"lobby", round:R.id, startAt:0, endAt:0 }; saveRoot(); broadcast(); }
   res.json({ ok:true });
 }));
 
-app.use((err, req, res, next)=>{ console.error(err); fail(res, 500, "Server error. Try again."); });
+app.use((err, req, res, next)=>{
+  if (err instanceof Retired) return fail(res, 503, "The game was just updated. Try again.");
+  console.error(err); fail(res, 500, "Couldn't save. Try again.");
+});
 
 await load();
 const server = app.listen(PORT, ()=> console.log(`listening on ${PORT}`));
-// Cloud Run stops idle instances with SIGTERM: write pending changes before exiting.
+// Cloud Run stops idle instances with SIGTERM: write pending changes before exiting
+// (persist() skips this if a newer instance already owns the game).
 process.on("SIGTERM", async ()=>{
   clearTimeout(rootTimer);
-  try { await ROOT.set(S); await flushRound(); } catch(e){ console.error("shutdown save", e); }
+  try { await persist(tx=>tx.set(ROOT, S)); await flushRound(); await flushUnsaved(); }
+  catch(e){ if (!(e instanceof Retired)) console.error("shutdown save", e); }
   for (const res of clients) res.end();
   server.close(()=> process.exit(0));
   setTimeout(()=> process.exit(0), 5000).unref();

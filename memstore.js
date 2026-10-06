@@ -4,6 +4,13 @@ export class MemFirestore {
   constructor(){ this.docs = new Map(); }   // full path -> data
   collection(p){ return new Col(this, p); }
   doc(p){ return new Doc(this, p); }
+  async runTransaction(fn){
+    const writes = [];
+    const tx = { get: r=>r.get(), set(r,d,o){ writes.push(()=>r.set(d,o)); return tx; }, delete(r){ writes.push(()=>r.delete()); return tx; } };
+    const out = await fn(tx);
+    for (const w of writes) await w();
+    return out;
+  }
   async recursiveDelete(ref){ for (const k of [...this.docs.keys()]) if (k===ref.path || k.startsWith(ref.path+"/")) this.docs.delete(k); }
 }
 const clone = v => v===undefined ? undefined : JSON.parse(JSON.stringify(v));
@@ -22,6 +29,7 @@ class Doc {
 class Col {
   constructor(db, path, filters=[]){ this.db=db; this.path=path; this.filters=filters; }
   doc(id){ return new Doc(this.db, `${this.path}/${id}`); }
+  select(){ return this; }
   where(field, op, val){ return new Col(this.db, this.path, [...this.filters, [field, op, val]]); }
   async listDocuments(){ return this.#own().map(([k])=>new Doc(this.db, k)); }
   async get(){

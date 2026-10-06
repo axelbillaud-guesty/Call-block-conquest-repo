@@ -116,6 +116,17 @@ try {
     assert.match(r.json.error, /free hex|Shielded/);
   });
 
+  await t("admin code with non-ASCII characters is a clean 401", async ()=>{
+    assert.equal((await call("/api/admin/check", { body:{}, admin:"test-codé" })).status, 401);
+  });
+  await t("an oversized import is refused without ending the live block", async ()=>{
+    const rows = Array.from({ length:5001 }, (_,i)=>({ Company:`C${i}` }));
+    const r = await call("/api/admin/import", { admin:ADMIN, body:{ headers:["Company"], fields:{}, groups:[{ slug:"carmen", name:"Carmen", rows }] } });
+    assert.equal(r.status, 413);
+    const s = await state();
+    assert.equal(s.game.status, "live"); assert.ok(s.game.endAt > Date.now());
+    assert.ok(Object.keys(s.round.hexes).length > 0, "map untouched");
+  });
   let roundId;
   await t("end the block → contest saved to History with standings", async ()=>{
     roundId = (await state()).round.id;
@@ -152,6 +163,20 @@ try {
     assert.ok(!(await state()).roster.reps.some(r=>r.slug==="newbie-person"));
     await call("/api/admin/clear-contacts", { admin:ADMIN, body:{} });
     assert.equal((await call("/api/contacts", { player: carmen.token })).json.rows.length, 0);
+  });
+  await t("a removed player re-added mid-round starts clean", async ()=>{
+    await call("/api/admin/import", { admin:ADMIN, body:{ headers:["Company"], fields:{ company:"Company" }, groups:[
+      { slug:"carmen", name:"Carmen", rows:[{ Company:"Acme" }] }, { slug:"julia", name:"Julia", rows:[{ Company:"Delta" }] } ] } });
+    await call("/api/admin/start", { admin:ADMIN, body:{ mins:10 } });
+    carmen = (await call("/api/pick", { body:{ slug:"carmen", takeover:true } })).json;
+    assert.equal((await call("/api/log", { player:carmen.token, body:{ cid:"carmen--0", c:true, p:true } })).status, 200);
+    await call("/api/admin/player/carmen", { method:"DELETE", admin:ADMIN });
+    await call("/api/admin/player", { admin:ADMIN, body:{ name:"Carmen" } });
+    const s = await state();
+    const fresh = s.roster.reps.find(r=>r.name==="Carmen");
+    assert.equal(fresh.slug, "carmen-2");
+    assert.ok(!s.round.logs.some(([,l])=>l.rep===fresh.slug), "no inherited calls");
+    assert.ok(s.round.logs.some(([,l])=>l.rep==="carmen"), "old play stays with the old player");
   });
   await t("serves the page and map module", async ()=>{
     const html = await (await fetch(BASE+"/")).text();

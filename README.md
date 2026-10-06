@@ -39,7 +39,7 @@ In **History**, pick a range (today, this week, this month, last month, all time
 ## How it runs
 
 - One Node server (`server.js`) on **Cloud Run** in project `agentic-workflows-485210`, region `europe-west1`. It keeps the live game in memory, checks every action and pushes updates to browsers with server-sent events.
-- It runs with `--max-instances 1`, so a single process owns the game state and there are no races.
+- It runs with `--max-instances 1`, so a single process owns the game state. During a redeploy the old and new versions overlap for a moment. The newest instance claims ownership when it starts, and every write checks ownership, so the outgoing one hands its players over and can't overwrite anything.
 - Data goes to the project's existing (default) **Firestore** database. That database is shared with other apps, so this app reads and writes **only** under the document `callblockconquest/main`:
 
   ```
