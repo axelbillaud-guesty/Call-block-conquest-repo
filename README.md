@@ -43,10 +43,13 @@ In **History**, pick a range (today, this week, this month, last month, all time
 - Data goes to the project's existing (default) **Firestore** database. That database is shared with other apps, so this app reads and writes **only** under the document `callblockconquest/main`:
 
   ```
-  callblockconquest/main                 game state, players, which browser holds which name
-  callblockconquest/main/contacts/{rep}  each player's call list
-  callblockconquest/main/rounds/{id}     one contest: map, wallets, final standings (History)
-  callblockconquest/main/rounds/{id}/logs/{account}
+  callblockconquest/main                             game state, players, which browser holds which name
+  callblockconquest/main/meta/owner                  which server instance may write (redeploy handoff)
+  callblockconquest/main/lists/{list}/contacts/{rep} each player's call list (a new list per import)
+  callblockconquest/main/rounds/{id}                 one contest: date, length, final standings (History)
+  callblockconquest/main/rounds/{id}/logs/{account}  logged calls
+  callblockconquest/main/rounds/{id}/hexes/{hex}     the map
+  callblockconquest/main/rounds/{id}/players/{rep}   points spent
   ```
 
   Every Firestore reference in the code is built from that root, so the app can't touch other collections.

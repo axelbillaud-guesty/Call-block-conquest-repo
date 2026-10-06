@@ -155,6 +155,12 @@ async function flushUnsaved(){
     if (retired) return;
   }
 }
+// A call or claim that was still saving when its round closed: refresh that round's standings.
+function resummarize(r){
+  if (r.meta?.status!=="done") return;
+  unsaved.set(r.id, { meta:{ ...r.meta }, summary: summarize(r) });
+  flushUnsaved();
+}
 setInterval(()=>{
   if (S.game.status==="live" && now()>=S.game.endAt && R?.meta?.status==="live") { closeRound(R, S.game.endAt); broadcast(); }
   if (unsaved.size) flushUnsaved();
@@ -252,6 +258,7 @@ app.post("/api/log", wrap(async (req,res)=>{
   try { await persist(tx=>tx.set(roundRef(r.id).collection("logs").doc(cid), log)); }
   finally { logging.delete(key); }
   r.logs.set(cid, log);
+  resummarize(r);
   broadcast();
   res.json({ ok:true, log, gain: log.pts - (prev?.pts||0) });
 }));
@@ -274,7 +281,7 @@ app.post("/api/claim", wrap(async (req,res)=>{
     });
   } catch(e){
     if (r.hexes[id]===rec){ if (prev) r.hexes[id] = prev; else delete r.hexes[id]; }
-    r.spent[slug]--; broadcast();
+    r.spent[slug]--; resummarize(r); broadcast();
     throw e;
   }
   res.json({ ok:true });
