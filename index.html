@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Call Block Conquest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root{
+  --bg:#e7edf1; --surface:#ffffff; --surface2:#f3f6f8; --ink:#13202d; --muted:#5a6a79; --line:#d2dbe2;
+  --sea:#d3dde4; --seaStroke:#bfccd5; --btn:#13202d; --btnInk:#ffffff; --good:#2b8a3e; --bad:#c92a2a; --gold:#e8a400;
+  --display:"Chakra Petch", "Arial Narrow", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --bg:#0e1923; --surface:#162431; --surface2:#1c2d3c; --ink:#e5edf3; --muted:#8fa2b3; --line:#27394a;
+  --sea:#1f303f; --seaStroke:#2b4052; --btn:#e5edf3; --btnInk:#0e1923;
+}}
+:root[data-theme="dark"]{
+  --bg:#0e1923; --surface:#162431; --surface2:#1c2d3c; --ink:#e5edf3; --muted:#8fa2b3; --line:#27394a;
+  --sea:#1f303f; --seaStroke:#2b4052; --btn:#e5edf3; --btnInk:#0e1923;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.45 var(--body)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,.contact:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.app{display:grid;grid-template-rows:auto 1fr;height:100%}
+
+/* header */
+header{display:flex;align-items:center;gap:20px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--surface);flex-wrap:wrap}
+.brand{font:700 22px/1 var(--display);letter-spacing:.01em;margin:0}
+.clock{font:700 30px/1 var(--display);font-variant-numeric:tabular-nums;min-width:5ch}
+.clock small{display:block;font:500 12px/1.2 var(--body);color:var(--muted)}
+.spacer{flex:1}
+.me{display:flex;align-items:center;gap:14px}
+.wallet{display:flex;align-items:baseline;gap:6px}
+.wallet b{font:700 28px/1 var(--display);font-variant-numeric:tabular-nums}
+.wallet span{color:var(--muted);font-size:13px}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface2);font-weight:600}
+.dot{width:12px;height:12px;border-radius:3px;flex:none;transform:rotate(45deg)}
+.ghost{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px}
+
+/* layout */
+main{display:grid;grid-template-columns:360px 1fr 280px;min-height:0}
+.panel{background:var(--surface);overflow:auto;min-height:0}
+.calls{border-right:1px solid var(--line)}
+.side{border-left:1px solid var(--line);padding:16px}
+.panel h2{font:700 16px/1.2 var(--display);margin:0 0 10px}
+.tabs{display:none}
+
+/* call list */
+.callsHead{position:sticky;top:0;background:var(--surface);padding:14px 16px 10px;border-bottom:1px solid var(--line);z-index:2}
+.progress{height:6px;border-radius:3px;background:var(--surface2);overflow:hidden;margin-top:6px}
+.progress i{display:block;height:100%;background:var(--ink)}
+.filters{display:flex;gap:6px;margin-top:10px}
+.filters button{border:1px solid var(--line);background:none;border-radius:6px;padding:3px 9px;font-size:13px}
+.filters button[aria-pressed="true"]{background:var(--btn);color:var(--btnInk);border-color:var(--btn)}
+.contact{display:block;width:100%;text-align:left;padding:10px 16px;border:0;border-bottom:1px solid var(--line);background:none}
+.contact:hover{background:var(--surface2)}
+.contact .row1{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.contact .row2{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status{font-size:12px;font-weight:600;padding:1px 7px;border-radius:4px;white-space:nowrap;background:var(--surface2);color:var(--muted)}
+.status.s-demo{background:var(--gold);color:#1a1300}
+.status.s-pos{background:var(--good);color:#fff}
+.status.s-neg{background:var(--muted);color:var(--surface)}
+.status.s-nc{border:1px dashed var(--muted)}
+.contact.open{background:var(--surface2)}
+
+/* call card */
+.card{padding:14px 16px 18px;border-bottom:2px solid var(--ink);background:var(--surface2)}
+.card .meta{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
+.tag{font-size:12.5px;padding:2px 8px;border-radius:4px;background:var(--surface);border:1px solid var(--line)}
+.reach{display:grid;gap:4px;margin-bottom:10px}
+.reach a{color:var(--ink);font-weight:600;text-decoration:none;border-bottom:1px solid var(--line);justify-self:start}
+.note{margin:8px 0}
+.note dt{font-size:12.5px;color:var(--muted);font-weight:600}
+.note dd{margin:2px 0 0;white-space:pre-wrap;max-height:9em;overflow:auto}
+.qs{margin-top:14px;display:grid;gap:10px}
+.q{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.q[aria-disabled="true"]{opacity:.4}
+.yn{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.yn button{border:0;background:var(--surface);padding:6px 14px;font-weight:600;min-width:52px}
+.yn button+button{border-left:1px solid var(--line)}
+.yn button[aria-pressed="true"].y{background:var(--good);color:#fff}
+.yn button[aria-pressed="true"].n{background:var(--bad);color:#fff}
+.logBtn{margin-top:14px;width:100%;padding:12px;border:0;border-radius:10px;background:var(--btn);color:var(--btnInk);font:700 17px/1 var(--display)}
+.logBtn:disabled{opacity:.35;cursor:not-allowed}
+.hint{font-size:12.5px;color:var(--muted);margin-top:6px}
+
+/* map */
+.mapWrap{position:relative;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden}
+svg.map{width:100%;height:100%;max-height:100%;display:block}
+.hex{stroke:var(--seaStroke);stroke-width:.06;fill:var(--sea);transition:fill .25s}
+.hex.can{cursor:pointer}
+.hex.can:hover{stroke:var(--ink);stroke-width:.14}
+.hex.edge{stroke-width:.12}
+.hex.shield{stroke:var(--surface);stroke-width:.16;stroke-dasharray:.18 .12}
+.mapNote{position:absolute;left:50%;top:18px;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.08);text-align:center;max-width:90%}
+.tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--surface);padding:5px 9px;border-radius:6px;font-size:13px;z-index:30;display:none;white-space:nowrap}
+.banner{position:absolute;inset:auto 0 22px 0;margin:auto;width:max-content;max-width:90%;padding:14px 26px;background:var(--gold);color:#1a1300;border-radius:12px;font:700 26px/1.1 var(--display);text-align:center;opacity:0;transform:translateY(20px) scale(.96);pointer-events:none}
+.banner.show{animation:pop 3.6s ease forwards}
+.banner small{display:block;font:600 14px var(--body)}
+@keyframes pop{0%{opacity:0;transform:translateY(20px) scale(.96)}10%,80%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-10px)}}
+
+/* standings */
+.board{list-style:none;margin:0 0 20px;padding:0}
+.board li{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.board .rank{font:700 14px var(--display);color:var(--muted)}
+.board .nm{font-weight:600;display:flex;align-items:center;gap:7px;min-width:0}
+.board .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.board .tt{font:700 18px var(--display);font-variant-numeric:tabular-nums;text-align:right}
+.board .sub{grid-column:2/4;font-size:12px;color:var(--muted);margin-top:-4px}
+.board li.mine{background:var(--surface2);margin:0 -8px;padding:7px 8px;border-radius:6px}
+.feed{list-style:none;margin:0;padding:0;font-size:13.5px}
+.feed li{padding:6px 0;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:baseline}
+.feed .pts{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+.empty{color:var(--muted);font-size:14px;padding:14px 16px}
+
+/* overlays */
+.overlay{position:fixed;inset:0;background:rgba(10,18,26,.55);display:flex;align-items:center;justify-content:center;z-index:40;padding:16px}
+.overlay[hidden]{display:none}
+.dialog{background:var(--surface);border-radius:14px;padding:22px;width:min(640px,100%);max-height:90vh;overflow:auto}
+.dialog h2{font:700 22px/1.2 var(--display);margin:0 0 6px}
+.dialog p{margin:0 0 14px;color:var(--muted)}
+.repGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.repGrid button{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);text-align:left;font-weight:600}
+.repGrid button:hover{border-color:var(--ink)}
+.host section{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+.host h3{font:700 15px var(--display);margin:0 0 8px}
+.host .btns{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.primary{border:0;border-radius:8px;padding:9px 16px;background:var(--btn);color:var(--btnInk);font-weight:600}
+.danger{border:1px solid var(--bad);color:var(--bad);background:none;border-radius:8px;padding:8px 14px;font-weight:600}
+.preview{font-size:13px;background:var(--surface2);border-radius:8px;padding:10px;margin-top:10px;max-height:200px;overflow:auto}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:8px;font-weight:600;z-index:50;display:none}
+
+@media (max-width:1100px){
+  .app{grid-template-rows:auto auto 1fr}
+  .tabs{display:flex;border-bottom:1px solid var(--line);background:var(--surface)}
+  .tabs button{flex:1;border:0;background:none;padding:10px;font-weight:600;border-bottom:3px solid transparent}
+  .tabs button[aria-selected="true"]{border-bottom-color:var(--ink)}
+  main{grid-template-columns:1fr}
+  main>*{display:none}
+  main>.active{display:block}
+  main>.mapWrap.active{display:flex}
+  .calls,.side{border:0}
+  header{padding:10px 14px;gap:12px}
+  .clock{font-size:24px}
+}
+@media (prefers-reduced-motion:reduce){.banner.show{animation-duration:.01s;opacity:1}.hex{transition:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1 class="brand">Call Block Conquest</h1>
+    <div class="clock" id="clock">--:--<small id="phase">Connecting…</small></div>
+    <div class="spacer"></div>
+    <div class="me" id="meBox" hidden>
+      <div class="wallet"><b id="bal">0</b><span>pts to spend</span></div>
+      <button class="chip" id="meChip" title="Switch player"></button>
+    </div>
+    <button class="ghost" id="hostBtn" hidden>Host controls</button>
+  </header>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="calls" aria-selected="false">My calls</button>
+    <button role="tab" data-tab="map" aria-selected="true">Map</button>
+    <button role="tab" data-tab="side" aria-selected="false">Standings</button>
+  </nav>
+  <main>
+    <section class="panel calls" data-pane="calls">
+      <div class="callsHead">
+        <h2 id="callsTitle">My call list</h2>
+        <div class="hint" id="callsStat">Pick your name to load your accounts.</div>
+        <div class="progress"><i id="prog" style="width:0"></i></div>
+        <div class="filters" id="filters">
+          <button data-f="todo" aria-pressed="true">To call</button>
+          <button data-f="done" aria-pressed="false">Logged</button>
+          <button data-f="all" aria-pressed="false">All</button>
+        </div>
+      </div>
+      <div id="list"></div>
+    </section>
+    <section class="mapWrap active" data-pane="map">
+      <svg class="map" id="map" role="img" aria-label="Territory map"></svg>
+      <div class="mapNote" id="mapNote" hidden></div>
+      <div class="banner" id="banner"></div>
+    </section>
+    <aside class="panel side" data-pane="side">
+      <h2>Territory</h2>
+      <ol class="board" id="board"></ol>
+      <h2>Live feed</h2>
+      <ul class="feed" id="feed"></ul>
+    </aside>
+  </main>
+</div>
+
+<div class="overlay" id="pickOv" hidden>
+  <div class="dialog">
+    <h2>Who's dialing?</h2>
+    <p>Pick your name to load your 50 accounts and claim your color.</p>
+    <div class="repGrid" id="repGrid"></div>
+    <div class="btns" style="margin-top:14px"><button class="ghost" id="watchBtn">Just watch</button></div>
+  </div>
+</div>
+
+<div class="overlay host" id="hostOv" hidden>
+  <div class="dialog">
+    <h2>Host controls</h2>
+    <p id="hostState"></p>
+    <section>
+      <h3>Game clock</h3>
+      <div class="btns">
+        <label>Minutes <input id="dur" type="number" min="5" max="240" value="60" style="width:70px;padding:6px"></label>
+        <button class="primary" id="startBtn">Start the block</button>
+        <button class="danger" id="endBtn">End now</button>
+      </div>
+    </section>
+    <section>
+      <h3>Call list</h3>
+      <p style="margin:0 0 8px">Upload the CSV. Accounts are matched to the BDR list by the BDR routing column (first names are enough). Importing starts a fresh round and clears the map.</p>
+      <input type="file" id="csv" accept=".csv,text/csv">
+      <div class="preview" id="csvPrev" hidden></div>
+      <div class="btns" style="margin-top:10px"><button class="primary" id="importBtn" disabled>Import call list</button></div>
+    </section>
+    <section>
+      <h3>Reset</h3>
+      <div class="btns"><button class="danger" id="resetBtn">Clear map and scores</button></div>
+    </section>
+    <div class="btns" style="margin-top:18px;justify-content:flex-end"><button class="ghost" id="hostClose">Close</button></div>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------- config ----------
+const PTS = { call: 1, positive: 5, meeting: 20 };
+const SHIELD_MS = 30000;          // freshly claimed hexes can't be stolen for 30s
+const COLORS = ["#e03131","#2b8a3e","#1971c2","#f08c00","#862e9c","#0c8599","#d6336c","#82c91e","#8d5524","#fab005","#20c997","#495057","#ff8787","#66d9e8","#b197fc","#5c940d","#364fc7","#e8590c"];
+
+// ---------- map geometry ----------
+const COLS = 30, ROWS = 19, S3 = Math.sqrt(3);
+function rnd(i){ const x = Math.sin(i*12.9898)*43758.5453; return x - Math.floor(x); }
+const HEX = [];   // {id,c,r,x,y}
+const HEXIDX = new Map();
+for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++){
+  const x=c+0.5*(r&1), y=r*0.866, cx=(COLS-0.5)/2, cy=(ROWS-1)*0.866/2;
+  const dx=(x-cx)/(COLS/2), dy=(y-cy)/((ROWS*0.866)/2), a=Math.atan2(dy,dx);
+  const w=1+0.13*Math.sin(a*3+1.3)+0.09*Math.sin(a*5+0.4)+0.07*(rnd(r*COLS+c)-0.5);
+  if (dx*dx+dy*dy < w*0.92){ const id=`h${c}_${r}`; HEXIDX.set(id, HEX.length); HEX.push({id,c,r,x:S3*(c+0.5*(r&1)),y:1.5*r}); }
+}
+function neighbors(h){
+  const odd = h.r & 1;
+  const d = odd ? [[1,0],[-1,0],[1,-1],[0,-1],[1,1],[0,1]] : [[1,0],[-1,0],[0,-1],[-1,-1],[0,1],[-1,1]];
+  return d.map(([dc,dr])=>`h${h.c+dc}_${h.r+dr}`).filter(id=>HEXIDX.has(id));
+}
+
+// ---------- state ----------
+const st = {
+  db:null, user:null, uid:null, isHost:false, canWrite:true,
+  game:{ status:"lobby", round:null, startAt:0, endAt:0 },
+  roster:{ reps:[], headers:[], fields:{} },
+  myRep:null, watching:false,
+  contacts:[], logs:new Map(), hexes:new Map(), players:new Map(),
+  openCid:null, draft:null, filter:"todo",
+  loadedAt: Date.now(), queue: Promise.resolve(), localSpent: 0,
+};
+let unsubRound = [], unsubContacts = null;
+const $ = id => document.getElementById(id);
+
+// ---------- helpers ----------
+function slugify(s){ return String(s).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60) || "rep"; }
+function repOf(slug){ return st.roster.reps.find(r=>r.slug===slug); }
+function colorOf(slug){ const i = st.roster.reps.findIndex(r=>r.slug===slug); return i<0 ? "var(--muted)" : COLORS[i % COLORS.length]; }
+function nameOf(slug){ return repOf(slug)?.name || "Someone"; }
+function now(){ return Date.now(); }
+function isLive(){ return st.game.status==="live" && now() < st.game.endAt; }
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.style.display="block"; clearTimeout(toast._t); toast._t=setTimeout(()=>t.style.display="none",2600); }
+function el(tag, attrs={}, ...kids){ const e=document.createElement(tag); for (const [k,v] of Object.entries(attrs)){ if(k==="class") e.className=v; else if(k.startsWith("on")) e.addEventListener(k.slice(2),v); else if(v!==false && v!=null) e.setAttribute(k, v===true?"":v); } for (const k of kids.flat()) if(k!=null) e.append(k.nodeType?k:document.createTextNode(k)); return e; }
+function ptsFor(c,p,m){ return PTS.call + (p?PTS.positive:0) + (m?PTS.meeting:0); }
+
+function earned(slug){ let s=0; for (const l of st.logs.values()) if (l.rep===slug) s += l.pts||0; return s; }
+function spent(slug){ const p = st.players.get(slug); const v = p?.spent||0; return slug===st.myRep ? Math.max(v, st.localSpent) : v; }
+function territory(slug){ let n=0; for (const h of st.hexes.values()) if (h.o===slug) n++; return n; }
+function balance(){ return st.myRep ? earned(st.myRep) - spent(st.myRep) : 0; }
+
+// ---------- name matching ----------
+function normName(x){ return String(x).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim(); }
+function matchRep(name){
+  const n = normName(name), first = n.split(" ")[0];
+  return st.roster.reps.find(r=>normName(r.name)===n)
+      || st.roster.reps.find(r=>normName(r.name).split(" ")[0]===first);
+}
+
+// ---------- CSV field detection ----------
+const FIELD_RULES = [
+  ["bdr",      /bdr|routing|owner|assigned/],
+  ["company",  /^(account|company|business)(name)?$|accountname|companyname/],
+  ["first",    /first/],
+  ["last",     /last(name)?$|surname/],
+  ["tier",     /tier|segment/],
+  ["listings", /listing/],
+  ["pms",      /pms|currentsystem/],
+  ["lastAct",  /lastactivity|lastcontact|lasttouch/],
+  ["email",    /email/],
+  ["phone",    /phone|mobile|tel/],
+  ["city",     /city/],
+  ["state",    /state|province|region/],
+  ["country",  /country/],
+  ["demo",     /demo/],
+  ["sdr",      /sdr|comment/],
+  ["handover", /handover|discovery/],
+];
+function detectFields(headers){
+  const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g,"");
+  const out = {}, used = new Set();
+  for (const [key, re] of FIELD_RULES){
+    const h = headers.find(h => !used.has(h) && re.test(norm(h)));
+    if (h){ out[key]=h; used.add(h); }
+  }
+  return out;
+}
+
+// ---------- map rendering ----------
+const NS="http://www.w3.org/2000/svg";
+const hexEls = new Map();
+function buildMap(){
+  const svg=$("map"); const pts=[];
+  for (let k=0;k<6;k++){ const a=Math.PI/180*(60*k-30); pts.push([Math.cos(a)*0.96, Math.sin(a)*0.96]); }
+  let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+  for (const h of HEX){
+    const p=document.createElementNS(NS,"polygon");
+    p.setAttribute("points", pts.map(([x,y])=>`${(h.x+x).toFixed(3)},${(h.y+y).toFixed(3)}`).join(" "));
+    p.setAttribute("class","hex"); p.dataset.id=h.id;
+    svg.appendChild(p); hexEls.set(h.id,p);
+    minX=Math.min(minX,h.x-1); maxX=Math.max(maxX,h.x+1); minY=Math.min(minY,h.y-1); maxY=Math.max(maxY,h.y+1);
+  }
+  svg.setAttribute("viewBox", `${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
+  svg.addEventListener("click", e => { const id=e.target?.dataset?.id; if (id) claim(id); });
+  svg.addEventListener("mousemove", e => {
+    const id=e.target?.dataset?.id, tip=$("tip");
+    if (!id){ tip.style.display="none"; return; }
+    tip.textContent = hexTip(id); tip.style.display="block";
+    tip.style.left=(e.clientX+14)+"px"; tip.style.top=(e.clientY+14)+"px";
+  });
+  svg.addEventListener("mouseleave", ()=> $("tip").style.display="none");
+}
+function hexTip(id){
+  const h = st.hexes.get(id);
+  const left = h ? Math.ceil((h.t + SHIELD_MS - now())/1000) : 0;
+  let s = h?.o ? nameOf(h.o) : "Unclaimed";
+  if (h?.o && left>0) s += ` · shielded ${left}s`;
+  const why = whyNot(id);
+  return why ? `${s} — ${why}` : `${s} — click to claim (1 pt)`;
+}
+let ctx=null;
+function mkCtx(){ return { mine: st.myRep?territory(st.myRep):0, free: HEX.some(x=>!st.hexes.get(x.id)?.o), bal: balance() }; }
+function whyNot(id){
+  const k = ctx || mkCtx();
+  if (!st.myRep) return "pick a player to play";
+  if (st.game.status!=="live") return "game hasn't started";
+  if (!isLive()) return "game over";
+  const h = st.hexes.get(id);
+  if (h?.o===st.myRep) return "yours";
+  if (k.bal < 1) return "log calls to earn points";
+  if (h?.o && now()-h.t < SHIELD_MS) return "shielded";
+  if (k.mine===0){
+    if (h?.o && k.free) return "start on a free hex";
+    return "";
+  }
+  const adj = neighbors(HEX[HEXIDX.get(id)]).some(n=>st.hexes.get(n)?.o===st.myRep);
+  return adj ? "" : "must touch your territory";
+}
+function renderMap(){
+  const t = now(); ctx = mkCtx();
+  for (const h of HEX){
+    const p = hexEls.get(h.id), d = st.hexes.get(h.id);
+    const fill = d?.o ? colorOf(d.o) : "";
+    if (p.style.fill !== fill) p.style.fill = fill;
+    const shield = d?.o && t - d.t < SHIELD_MS;
+    p.classList.toggle("shield", !!shield);
+    p.classList.toggle("can", !whyNot(h.id));
+  }
+  const note=$("mapNote");
+  let msg="";
+  if (!st.roster.reps.length) msg = "Waiting for the host to import the call list.";
+  else if (st.game.status!=="live") msg = "The map unlocks when the host starts the block.";
+  else if (!isLive()) msg = "Time's up. Biggest territory wins.";
+  else if (st.myRep && territory(st.myRep)===0 && balance()>0) msg = "Drop your flag: click any free hex.";
+  note.hidden=!msg; note.textContent=msg; ctx=null;
+}
+
+// ---------- claiming ----------
+function claim(id){
+  const why = whyNot(id);
+  if (why){ if (why!=="yours") toast(why[0].toUpperCase()+why.slice(1)+"."); return; }
+  const prev = st.hexes.get(id);
+  const rec = { o: st.myRep, t: now(), by: st.uid };
+  st.hexes.set(id, rec);            // optimistic
+  st.localSpent = spent(st.myRep) + 1;
+  const spentNow = st.localSpent, slug = st.myRep, round = st.game.round;
+  schedule();
+  st.queue = st.queue.then(async ()=>{
+    try {
+      await st.db.doc(`rounds/${round}/hexes/${id}`).set(rec);
+      await st.db.doc(`rounds/${round}/players/${slug}`).set({ spent: spentNow, at: now() });
+    } catch(e){ st.hexes.set(id, prev); st.localSpent--; schedule(); toast(writeErr(e)); }
+  });
+}
+function writeErr(e){
+  if (e?.code==="invalid_argument") return "You can view this game but not play. Ask the host for Contributor access.";
+  if (e?.code==="quota_exceeded") return "The game database is full. Ask the host to reset.";
+  return "Couldn't save. Check your connection and try again.";
+}
+
+// ---------- call list ----------
+function contactStatus(cid){
+  const l = st.logs.get(cid);
+  if (!l) return null;
+  if (l.m) return ["s-demo","Demo booked"];
+  if (l.c && l.p) return ["s-pos","Positive"];
+  if (l.c) return ["s-neg","Negative"];
+  return ["s-nc","No answer"];
+}
+function v(row, key){ const h = st.roster.fields[key]; return h ? String(row[h]??"").trim() : ""; }
+function contactName(row){ const n = [v(row,"first"), v(row,"last")].filter(Boolean).join(" "); return n || v(row,"company") || "Unnamed contact"; }
+
+function renderCalls(){
+  const list=$("list"); list.textContent="";
+  const mine = st.contacts;
+  const loggedN = mine.filter(c=>st.logs.has(c.cid)).length;
+  $("callsTitle").textContent = st.myRep ? `${nameOf(st.myRep)}'s call list` : "My call list";
+  $("callsStat").textContent = st.myRep ? `${loggedN} of ${mine.length} logged · ${earned(st.myRep)} pts earned` : (st.watching ? "You're watching. Pick a name to play." : "Pick your name to load your accounts.");
+  $("prog").style.width = mine.length ? (100*loggedN/mine.length)+"%" : "0";
+  if (!st.myRep) return;
+  if (!mine.length){ list.append(el("div",{class:"empty"},"No accounts are routed to you in the current list.")); return; }
+  const shown = mine.filter(c=>{
+    const l = st.logs.get(c.cid);
+    if (st.filter==="todo") return !l || !l.c;
+    if (st.filter==="done") return !!l;
+    return true;
+  });
+  if (!shown.length) list.append(el("div",{class:"empty"}, st.filter==="todo" ? "Every account has been reached. Nice work." : "Nothing logged yet. Your first call is one click away."));
+  for (const c of shown){
+    const s = contactStatus(c.cid), row=c.row, open = st.openCid===c.cid;
+    const sub = [v(row,"company") && contactName(row)!==v(row,"company") ? v(row,"company") : "", v(row,"tier"), v(row,"listings") && `${v(row,"listings")} listings`, v(row,"pms")].filter(Boolean).join(" · ");
+    list.append(el("button",{class:"contact"+(open?" open":""), "aria-expanded":String(open), onclick:()=>toggleCard(c.cid)},
+      el("div",{class:"row1"}, el("span",{},contactName(row)), s ? el("span",{class:"status "+s[0]},s[1]) : null),
+      el("div",{class:"row2"}, sub || "No details")));
+    if (open) list.append(callCard(c));
+  }
+}
+function toggleCard(cid){
+  if (st.openCid===cid){ st.openCid=null; st.draft=null; }
+  else { st.openCid=cid; const l=st.logs.get(cid); st.draft={ c:l?.c??null, p:l?.p??null, m:l?.m??null }; }
+  renderCalls();
+}
+function callCard(c){
+  const row=c.row, f=st.roster.fields, l=st.logs.get(c.cid), locked = !!l?.c;
+  const card = el("div",{class:"card"});
+  const tags = [v(row,"tier"), v(row,"listings") && `${v(row,"listings")} listings`, v(row,"pms") && `PMS: ${v(row,"pms")}`, v(row,"lastAct") && `Last activity: ${v(row,"lastAct")}`].filter(Boolean);
+  card.append(el("div",{class:"meta"}, tags.map(t=>el("span",{class:"tag"},t))));
+  const reach = el("div",{class:"reach"});
+  if (v(row,"phone")) reach.append(el("a",{href:"tel:"+v(row,"phone").replace(/[^\d+]/g,"")}, v(row,"phone")));
+  if (v(row,"email")) reach.append(el("a",{href:"mailto:"+v(row,"email")}, v(row,"email")));
+  const loc = [v(row,"city"),v(row,"state"),v(row,"country")].filter(Boolean).join(", ");
+  if (loc) reach.append(el("span",{},loc));
+  card.append(reach);
+  const notes = el("dl",{});
+  const noteKeys = [["demo","Demo notes"],["sdr","SDR comments"],["handover","Discovery handover"]];
+  for (const [k,label] of noteKeys) if (v(row,k)) notes.append(el("div",{class:"note"}, el("dt",{},f[k]||label), el("dd",{},v(row,k))));
+  const known = new Set(Object.values(f));
+  for (const h of st.roster.headers) if (!known.has(h) && String(row[h]??"").trim()) notes.append(el("div",{class:"note"}, el("dt",{},h), el("dd",{},String(row[h]).trim())));
+  card.append(notes);
+
+  const d = st.draft;
+  const q = (label, key, enabled) => el("div",{class:"q","aria-disabled":String(!enabled)},
+    el("span",{},label),
+    el("div",{class:"yn",role:"group","aria-label":label},
+      el("button",{class:"y","aria-pressed":String(d[key]===true), disabled:!enabled||locked, onclick:()=>setAns(key,true)},"Yes"),
+      el("button",{class:"n","aria-pressed":String(d[key]===false), disabled:!enabled||locked, onclick:()=>setAns(key,false)},"No")));
+  const qs = el("div",{class:"qs"},
+    q("Call connected", "c", true),
+    q("Positive conversation", "p", d.c===true),
+    q("Meeting booked", "m", d.c===true));
+  card.append(qs);
+
+  const complete = d.c===false || (d.c===true && d.p!==null && d.m!==null);
+  const pts = complete ? ptsFor(d.c, d.p, d.m) : null;
+  const already = l?.pts || 0;
+  const gain = pts==null ? 0 : pts - already;
+  let label = locked ? "Logged" : !isLive() ? (st.game.status==="live" ? "Game over" : "Waiting for the start") : !complete ? "Answer the questions above" : `Log call  +${gain} pts`;
+  card.append(el("button",{class:"logBtn", disabled: locked || !complete || !isLive(), onclick:()=>logCall(c.cid)}, label));
+  card.append(el("div",{class:"hint"}, locked ? "This result is locked in. Notes go in the CRM." : l ? "No answer last time. Log the retry here if you get through." : "Points only. Put the real notes in the CRM."));
+  return card;
+}
+function setAns(key,val){
+  const d=st.draft; d[key]=val;
+  if (key==="c" && !val){ d.p=null; d.m=null; }
+  if (key==="m" && val) d.p=true;
+  if (key==="p" && !val) d.m=false;
+  renderCalls();
+}
+async function logCall(cid){
+  const d=st.draft, prev=st.logs.get(cid);
+  const c=!!d.c, p=c&&!!d.p, m=c&&!!d.m;
+  const rec = { rep: st.myRep, c, p, m, pts: ptsFor(c,p,m), n:(prev?.n||0)+1, at: now(), by: st.uid };
+  st.logs.set(cid, rec);
+  if (m) showBanner(st.myRep);
+  st.openCid=null; st.draft=null; schedule();
+  toast(`+${rec.pts - (prev?.pts||0)} pts. Go claim some ground.`);
+  try { await st.db.doc(`rounds/${st.game.round}/logs/${cid}`).set(rec); }
+  catch(e){ if (prev) st.logs.set(cid,prev); else st.logs.delete(cid); schedule(); toast(writeErr(e)); }
+}
+
+// ---------- standings ----------
+function renderSide(){
+  const rows = st.roster.reps.map(r=>{
+    let demos=0, calls=0; for (const l of st.logs.values()) if (l.rep===r.slug){ calls++; if (l.m) demos++; }
+    return { ...r, terr: territory(r.slug), pts: earned(r.slug), demos, calls };
+  }).sort((a,b)=> b.terr-a.terr || b.pts-a.pts || a.name.localeCompare(b.name));
+  const board=$("board"); board.textContent="";
+  if (!rows.length) board.append(el("li",{class:"empty",style:"display:block;padding:0"},"No players yet."));
+  rows.forEach((r,i)=> board.append(el("li",{class: r.slug===st.myRep?"mine":""},
+    el("span",{class:"rank"}, String(i+1)),
+    el("span",{class:"nm"}, el("i",{class:"dot",style:`background:${colorOf(r.slug)}`}), el("span",{},r.name)),
+    el("span",{class:"tt", title:"Hexes held"}, String(r.terr)),
+    el("span",{class:"sub"}, `${r.pts} pts · ${r.calls} calls · ${r.demos} demo${r.demos===1?"":"s"}`))));
+  const feed=$("feed"); feed.textContent="";
+  const ev = [...st.logs.values()].sort((a,b)=>b.at-a.at).slice(0,14);
+  if (!ev.length) feed.append(el("li",{class:"empty",style:"padding:0"},"Calls will show up here as they're logged."));
+  for (const l of ev) feed.append(el("li",{},
+    el("i",{class:"dot",style:`background:${colorOf(l.rep)}`}),
+    el("span",{}, `${nameOf(l.rep)} ${l.m?"booked a demo":l.p?"had a positive call":l.c?"connected":"logged a dial"}`),
+    el("span",{class:"pts"}, `+${l.pts}`)));
+}
+
+// ---------- header / clock ----------
+function renderHeader(){
+  const g=st.game, t=now();
+  let main="--:--", sub="";
+  if (!st.db) sub="Offline";
+  else if (g.status==="live" && t<g.endAt){ const s=Math.max(0,Math.ceil((g.endAt-t)/1000)); main=`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`; sub="Remaining"; }
+  else if (g.status==="live"){ main="0:00"; sub="Final"; }
+  else { sub = st.roster.reps.length ? "Lobby" : "Setting up"; }
+  $("clock").firstChild.nodeValue = main; $("phase").textContent = sub;
+  $("meBox").hidden = !st.myRep && !st.watching;
+  $("bal").textContent = st.myRep ? balance() : "–";
+  const chip=$("meChip"); chip.textContent="";
+  chip.append(el("i",{class:"dot",style:`background:${st.myRep?colorOf(st.myRep):"var(--muted)"}`}), st.myRep ? nameOf(st.myRep) : "Watching");
+  $("hostBtn").hidden = !st.isHost;
+}
+
+let raf=0;
+function schedule(){ if (raf) return; raf=requestAnimationFrame(()=>{ raf=0; renderHeader(); renderMap(); renderCalls(); renderSide(); }); }
+setInterval(()=>{ renderHeader(); if (st.game.status==="live") renderMap(); }, 1000);
+
+// ---------- celebration ----------
+function showBanner(slug){
+  const b=$("banner"); b.textContent=""; b.append(`${nameOf(slug)} booked a demo`, el("small",{},`+${ptsFor(true,true,true)} points of firepower`));
+  b.style.borderBottom=`6px solid ${colorOf(slug)}`;
+  b.classList.remove("show"); void b.offsetWidth; b.classList.add("show");
+}
+
+// ---------- player pick ----------
+function openPicker(){
+  const g=$("repGrid"); g.textContent="";
+  if (!st.roster.reps.length) g.append(el("p",{},"The host hasn't imported the call list yet. Check back in a minute."));
+  for (const r of st.roster.reps) g.append(el("button",{onclick:()=>pickRep(r.slug)}, el("i",{class:"dot",style:`background:${colorOf(r.slug)}`}), r.name));
+  $("pickOv").hidden=false;
+}
+async function pickRep(slug){
+  $("pickOv").hidden=true; st.myRep=slug; st.watching=false; st.localSpent=0; subContacts(); schedule();
+  if (st.uid) try { await st.db.doc(`data/users/${st.uid}/me`).set({ rep: slug }); } catch(e){}
+}
+$("watchBtn").onclick = async ()=>{ $("pickOv").hidden=true; st.myRep=null; st.watching=true; subContacts(); schedule();
+  if (st.uid) try { await st.db.doc(`data/users/${st.uid}/me`).set({ rep: null, watching:true }); } catch(e){} };
+$("meChip").onclick = openPicker;
+
+// ---------- host ----------
+let parsed=null;
+$("hostBtn").onclick = ()=>{ renderHost(); $("hostOv").hidden=false; };
+$("hostClose").onclick = ()=> $("hostOv").hidden=true;
+function renderHost(){
+  const g=st.game;
+  $("hostState").textContent = !st.roster.reps.length ? "Start by importing the call list."
+    : g.status==="live" && now()<g.endAt ? `Live. Ends at ${new Date(g.endAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}.`
+    : g.status==="live" ? "The block has ended. Final standings are on the board."
+    : `${st.roster.reps.length} reps loaded. Ready when you are.`;
+  $("startBtn").disabled = !st.roster.reps.length;
+}
+$("csv").onchange = e => {
+  const file=e.target.files[0]; if (!file) return;
+  Papa.parse(file, { header:true, skipEmptyLines:"greedy", complete: res => {
+    const headers = (res.meta.fields||[]).filter(h=>h && h.trim());
+    const fields = detectFields(headers);
+    const prev=$("csvPrev"); prev.hidden=false; prev.textContent="";
+    if (!fields.bdr){ prev.textContent="Couldn't find the BDR routing column. Name it something like “BDR Routing”."; $("importBtn").disabled=true; parsed=null; return; }
+    const groups = new Map();   // slug -> {name, rows, isNew}
+    for (const r of st.roster.reps) groups.set(r.slug, { name:r.name, rows:[], isNew:false });
+    for (const row of res.data){
+      const who = String(row[fields.bdr]??"").trim(); if (!who) continue;
+      const clean={}; for (const h of headers) if (h!==fields.bdr){ const val=String(row[h]??"").trim(); if (val) clean[h]=val.slice(0,3000); }
+      const hit = matchRep(who);
+      const slug = hit ? hit.slug : "new-" + slugify(who);
+      if (!groups.has(slug)) groups.set(slug, { name: who, rows:[], isNew:true });
+      groups.get(slug).rows.push(clean);
+    }
+    parsed = { headers: headers.filter(h=>h!==fields.bdr), fields, groups };
+    const all=[...groups.entries()];
+    const total=all.reduce((a,[,g])=>a+g.rows.length,0);
+    const matched=all.filter(([,g])=>!g.isNew && g.rows.length), empty=all.filter(([,g])=>!g.isNew && !g.rows.length), extra=all.filter(([,g])=>g.isNew);
+    prev.append(el("div",{},`${total} accounts. ${matched.length} of ${st.roster.reps.length} BDRs matched.`),
+      el("div",{style:"margin-top:6px"}, matched.map(([,g])=>`${g.name} (${g.rows.length})`).join(", ") || "No BDRs matched."));
+    if (empty.length) prev.append(el("div",{style:"margin-top:6px;color:var(--bad)"}, "No accounts for: " + empty.map(([,g])=>g.name).join(", ")));
+    if (extra.length) prev.append(el("div",{style:"margin-top:6px;color:var(--bad)"}, "Not in the BDR list, will be added as new players: " + extra.map(([,g])=>`${g.name} (${g.rows.length})`).join(", ")));
+    prev.append(el("div",{style:"margin-top:6px;color:var(--muted)"}, "Matched columns: " + Object.values(fields).join(", ")));
+    $("importBtn").disabled=false;
+  }});
+};
+$("importBtn").onclick = async ()=>{
+  if (!parsed) return;
+  if (st.game.status==="live" && now()<st.game.endAt && !confirm("The block is live. Importing starts a fresh round and wipes the map. Continue?")) return;
+  const btn=$("importBtn"); btn.disabled=true; btn.textContent="Importing…";
+  try{
+    const reps=[];
+    for (const [slug, g] of parsed.groups){
+      reps.push({ slug, name: g.name });
+      await st.db.doc(`contacts/${slug}`).set({ rows: g.rows.map((r,i)=>({ cid:`${slug}--${i}`, row:r })) });
+    }
+    await st.db.doc("game/roster").set({ reps, headers: parsed.headers, fields: parsed.fields, at: now() });
+    await st.db.doc("game/state").set({ status:"lobby", round:"r"+now().toString(36), startAt:0, endAt:0 });
+    toast(`Imported ${reps.length} reps.`); parsed=null; $("csv").value=""; $("csvPrev").hidden=true;
+  } catch(e){ toast(writeErr(e)); }
+  btn.textContent="Import call list"; renderHost();
+};
+$("startBtn").onclick = async ()=>{
+  const mins = Math.max(5, Math.min(240, +$("dur").value || 60));
+  const round = st.game.status==="live" ? "r"+now().toString(36) : (st.game.round || "r"+now().toString(36));
+  if (st.game.status==="live" && !confirm("Restart the clock? This starts a fresh round and clears the map.")) return;
+  try { await st.db.doc("game/state").set({ status:"live", round, startAt:now(), endAt:now()+mins*60000 }); $("hostOv").hidden=true; }
+  catch(e){ toast(writeErr(e)); }
+};
+$("endBtn").onclick = async ()=>{
+  if (st.game.status!=="live") return toast("The block isn't running.");
+  try { await st.db.doc("game/state").set({ ...st.game, endAt: now() }); renderHost(); } catch(e){ toast(writeErr(e)); }
+};
+$("resetBtn").onclick = async ()=>{
+  if (!confirm("Clear the map and all scores? The call list stays.")) return;
+  try { await st.db.doc("game/state").set({ status:"lobby", round:"r"+now().toString(36), startAt:0, endAt:0 }); renderHost(); toast("Fresh round ready."); }
+  catch(e){ toast(writeErr(e)); }
+};
+
+// ---------- tabs (narrow screens) ----------
+document.querySelectorAll(".tabs button").forEach(b=> b.onclick = ()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected", String(x===b)));
+  document.querySelectorAll("main>[data-pane]").forEach(p=>p.classList.toggle("active", p.dataset.pane===b.dataset.tab));
+});
+$("filters").onclick = e => { const f=e.target?.dataset?.f; if (!f) return; st.filter=f; for (const b of $("filters").children) b.setAttribute("aria-pressed", String(b.dataset.f===f)); renderCalls(); };
+
+// ---------- subscriptions ----------
+function subRound(){
+  unsubRound.forEach(u=>u()); unsubRound=[];
+  st.logs=new Map(); st.hexes=new Map(); st.players=new Map(); st.localSpent=0;
+  const r = st.game.round; if (!r){ schedule(); return; }
+  let first=true;
+  unsubRound.push(st.db.collection(`rounds/${r}/logs`).onSnapshot(s=>{
+    const fresh = new Map(); for (const d of s.docs) fresh.set(d.id, d.data());
+    if (!first) for (const ch of s.docChanges()){ const l=ch.doc.data(); if (ch.type!=="removed" && l?.m && l.at>st.loadedAt && l.rep!==st.myRep && !st.logs.get(ch.doc.id)?.m) showBanner(l.rep); }
+    first=false; st.logs=fresh; schedule();
+  }, ()=>{}));
+  unsubRound.push(st.db.collection(`rounds/${r}/hexes`).onSnapshot(s=>{
+    const m=new Map(); for (const d of s.docs) m.set(d.id, d.data()); st.hexes=m; schedule();
+  }, ()=>{}));
+  unsubRound.push(st.db.collection(`rounds/${r}/players`).onSnapshot(s=>{
+    const m=new Map(); for (const d of s.docs) m.set(d.id, d.data()); st.players=m; schedule();
+  }, ()=>{}));
+}
+function subContacts(){
+  if (unsubContacts) unsubContacts(); unsubContacts=null; st.contacts=[];
+  if (!st.myRep){ schedule(); return; }
+  unsubContacts = st.db.doc(`contacts/${st.myRep}`).onSnapshot(s=>{ st.contacts = s.exists ? (s.data().rows||[]) : []; schedule(); }, ()=>{});
+}
+
+async function init(){
+  buildMap(); schedule();
+  const use = n => (window.claude && window.claude.use) ? window.claude.use(n) : Promise.resolve(null);
+  const [db, user] = await Promise.all([use("db"), use("user")]);
+  if (!db){ $("phase").textContent="Sign in to play"; const n=$("mapNote"); n.hidden=false; n.textContent="Open this link signed in to claude.ai with your work account to join the game."; return; }
+  st.db=db; st.user=user;
+  st.uid = user ? await user.id() : null;
+  st.isHost = user ? await user.canEdit() : false;
+  let gotRoster=false, gotMe=!st.uid;
+  const maybePick = ()=>{ if (gotRoster && gotMe && !st.myRep && !st.watching && st.roster.reps.length) openPicker(); };
+  db.doc("game/state").onSnapshot(s=>{
+    const g = s.exists ? s.data() : { status:"lobby", round:null, startAt:0, endAt:0 };
+    const changed = g.round !== st.game.round; st.game = g;
+    if (changed) subRound(); if (!$("hostOv").hidden) renderHost(); schedule();
+  }, ()=>{});
+  db.doc("game/roster").onSnapshot(s=>{
+    st.roster = s.exists ? s.data() : { reps:[], headers:[], fields:{} };
+    if (!st.roster.fields) st.roster.fields={}; if (!st.roster.headers) st.roster.headers=[];
+    if (st.myRep && !repOf(st.myRep)){ st.myRep=null; subContacts(); if (st.roster.reps.length) openPicker(); }
+    gotRoster=true; maybePick(); if (!$("hostOv").hidden) renderHost(); schedule();
+  }, ()=>{});
+  if (st.uid){
+    try { const me = await db.doc(`data/users/${st.uid}/me`).get(); if (me.exists){ st.myRep = me.data().rep || null; st.watching = !!me.data().watching; } } catch(e){}
+    gotMe=true; if (st.myRep && st.roster.reps.length && !repOf(st.myRep)) st.myRep=null; subContacts(); maybePick(); schedule();
+  }
+}
+init();
+</script>
+</body>
+</html>
