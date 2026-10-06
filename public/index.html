@@ -486,7 +486,8 @@ async function loadContacts(){
 function connect(){
   const es = new EventSource("/api/events");
   es.addEventListener("state", e => { st.connected=true; applyState(JSON.parse(e.data)); });
-  es.onerror = () => { st.connected=false; schedule(); };
+  // The browser gives up on a stream after an error response (e.g. during a redeploy): reopen it.
+  es.onerror = () => { st.connected=false; schedule(); if (es.readyState===EventSource.CLOSED) setTimeout(connect, 2000); };
 }
 
 // ---------- claiming ----------

@@ -1,11 +1,18 @@
 // End-to-end smoke test: starts the server on the in-memory store and plays a short game.
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { HEX, HEXIDX, neighbors } from "../public/map.js";
 
 const PORT = 3999, BASE = `http://127.0.0.1:${PORT}`, ADMIN = "test-code";
-const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, CBC_MEMORY:"1", ADMIN_CODE:ADMIN, PORT:String(PORT) }, stdio:["ignore","pipe","inherit"] });
-await new Promise(r => srv.stdout.on("data", d => String(d).includes("listening") && r()));
+const FILE = path.join(os.tmpdir(), `cbc-smoke-${process.pid}.json`);
+function boot(){
+  const p = spawn(process.execPath, ["server.js"], { env: { ...process.env, CBC_MEMORY:"1", CBC_MEMORY_FILE:FILE, ADMIN_CODE:ADMIN, PORT:String(PORT) }, stdio:["ignore","pipe","inherit"] });
+  return new Promise(r => p.stdout.on("data", d => String(d).includes("listening") && r(p)));
+}
+let srv = await boot();
 
 async function call(path, { body, method, player, admin } = {}){
   const headers = { "Content-Type":"application/json" };
@@ -127,6 +134,20 @@ try {
     assert.equal(s.game.status, "live"); assert.ok(s.game.endAt > Date.now());
     assert.ok(Object.keys(s.round.hexes).length > 0, "map untouched");
   });
+  await t("a restart mid-block restores calls, hexes, wallets and names", async ()=>{
+    const before = await state();
+    srv.kill("SIGTERM"); await new Promise(r=>srv.on("exit", r));
+    srv = await boot();
+    const after = await state();
+    assert.equal(after.game.status, "live");
+    assert.equal(after.round.id, before.round.id);
+    assert.deepEqual(after.round.hexes, before.round.hexes);
+    assert.deepEqual(after.round.spent, before.round.spent);
+    assert.deepEqual(new Map(after.round.logs), new Map(before.round.logs));
+    assert.deepEqual(after.taken, before.taken);
+    assert.equal((await call("/api/contacts", { player: carmen.token })).json.rows.length, 3, "call list survives too");
+  });
+
   let roundId;
   await t("end the block → contest saved to History with standings", async ()=>{
     roundId = (await state()).round.id;
@@ -186,4 +207,4 @@ try {
   console.log(`\n${ok} checks passed`);
 } catch (e) {
   console.error("\nFAILED:", e.message); process.exitCode = 1;
-} finally { srv.kill(); }
+} finally { srv.kill(); fs.rmSync(FILE, { force:true }); }

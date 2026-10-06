@@ -4,7 +4,7 @@ import express from "express";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Firestore } from "@google-cloud/firestore";
+import { Firestore, FieldValue } from "@google-cloud/firestore";
 import { HEXIDX, ptsFor, claimBlock } from "./public/map.js";
 
 const PORT = process.env.PORT || 8080;
@@ -18,13 +18,17 @@ const DEFAULT_REPS = ["Faïda","Carmen","Claudio","Felix","Julia","Faisal","Cait
 // stores lives under the single document callblockconquest/main and its subcollections:
 // every reference below is built from ROOT, so the app cannot read, write or delete anything else.
 const fs = process.env.CBC_MEMORY==="1"
-  ? new (await import("./memstore.js")).MemFirestore()
+  ? new (await import("./memstore.js")).MemFirestore(process.env.CBC_MEMORY_FILE)
   : new Firestore({ ignoreUndefinedProperties: true });
 const ROOT = fs.collection("callblockconquest").doc("main");
 const OWNER_REF = ROOT.collection("meta").doc("owner");
 const roundsCol = () => ROOT.collection("rounds");
 const roundRef = id => roundsCol().doc(id);
-const contactsRef = slug => ROOT.collection("contacts").doc(slug);
+// Call lists are versioned: an import writes a whole new list, then the roster switches to it.
+const listCol = listId => ROOT.collection("lists").doc(listId);
+const listRef = (listId, slug) => listCol(listId).collection("contacts").doc(slug);
+const listId = () => S.roster.listId || "l0";
+const inc = n => fs.increment ? fs.increment(n) : FieldValue.increment(n);
 
 // Only one server instance may write. During a redeploy the old and new revisions overlap
 // briefly: the newest instance claims ownership at boot, and every write checks it inside a
@@ -54,6 +58,8 @@ let S = { game:{ status:"lobby", round:null, startAt:0, endAt:0 }, roster:{ reps
 let R = null;                    // current round: { id, meta, logs: Map, hexes:{}, spent:{} }
 const contacts = new Map();      // slug -> rows, loaded on demand
 const unsaved = new Map();       // round id -> finished round not yet stored (retried)
+const saving = new Map();        // round id -> in-flight save of a finished round
+const logging = new Set();       // "round/account" calls being saved right now
 
 const now = () => Date.now();
 const sha = s => crypto.createHash("sha256").update(String(s)).digest("hex");
@@ -91,28 +97,27 @@ async function load(){
   R = emptyRound(S.game.round);
   if (S.game.round){
     const rs = await roundRef(S.game.round).get();
-    if (rs.exists){ const d=rs.data(); R.meta = d.meta || null; R.hexes = d.hexes || {}; R.spent = d.spent || {}; }
-    const ls = await roundRef(S.game.round).collection("logs").get();
+    if (rs.exists) R.meta = rs.data().meta || null;
+    const sub = name => roundRef(S.game.round).collection(name).get();
+    const [ls, hs, ps] = await Promise.all([sub("logs"), sub("hexes"), sub("players")]);
     for (const doc of ls.docs) R.logs.set(doc.id, doc.data());
+    for (const doc of hs.docs) R.hexes[doc.id] = doc.data();
+    for (const doc of ps.docs) R.spent[doc.id] = doc.data().spent || 0;
   }
   console.log(`loaded: round ${S.game.round} (${S.game.status}), ${R.logs.size} logs, ${Object.keys(R.hexes).length} hexes`);
 }
 
-// Debounced writes: the root doc and the round doc change often during play.
-let rootTimer=null, roundTimer=null;
+// The root doc (game, roster, name holders) changes in bursts: its writes are debounced.
+// Calls and hex claims are stored one document each, before the player gets an answer.
+let rootTimer=null;
 function saveRoot(){
   clearTimeout(rootTimer);
   rootTimer=setTimeout(()=>persist(tx=>tx.set(ROOT, S)).catch(e=>{ if (!(e instanceof Retired)) console.error("saveRoot", e); }), 300);
 }
-function saveRound(){
-  if (!R?.meta) return;            // rounds are stored once they have started
-  clearTimeout(roundTimer);
-  roundTimer=setTimeout(()=>flushRound().catch(e=>{ if (!(e instanceof Retired)) console.error("saveRound", e); }), 800);
-}
+async function saveRootNow(){ clearTimeout(rootTimer); await persist(tx=>tx.set(ROOT, S)); }
 async function flushRound(){
-  clearTimeout(roundTimer);
   const r = R;
-  if (r?.meta && r.meta.status==="live") await persist(tx=>tx.set(roundRef(r.id), { meta:r.meta, hexes:r.hexes, spent:r.spent }, { merge:true }));
+  if (r?.meta && r.meta.status==="live") await persist(tx=>tx.set(roundRef(r.id), { meta:r.meta }, { merge:true }));
 }
 
 // ---------- scoring ----------
@@ -136,13 +141,18 @@ function earned(slug){ let s=0; for (const l of R.logs.values()) if (l.rep===slu
 function closeRound(r, endAt = Math.min(now(), S.game.endAt || now())){
   if (!r?.meta || r.meta.status!=="live") return Promise.resolve();
   r.meta.endAt = endAt; r.meta.status = "done";
-  unsaved.set(r.id, { meta:{ ...r.meta }, hexes:{ ...r.hexes }, spent:{ ...r.spent }, summary: summarize(r) });
+  unsaved.set(r.id, { meta:{ ...r.meta }, summary: summarize(r) });
   return flushUnsaved();
 }
 async function flushUnsaved(){
   for (const [id, data] of unsaved){
-    try { await persist(tx=>tx.set(roundRef(id), data, { merge:true })); unsaved.delete(id); }
-    catch(e){ if (e instanceof Retired) return; console.error("save finished round", id, e); }
+    if (saving.has(id)) { await saving.get(id); continue; }
+    const p = persist(tx=>tx.set(roundRef(id), data, { merge:true }))
+      .then(()=>{ if (unsaved.get(id)===data) unsaved.delete(id); })
+      .catch(e=>{ if (!(e instanceof Retired)) console.error("save finished round", id, e); })
+      .finally(()=>saving.delete(id));
+    saving.set(id, p); await p;
+    if (retired) return;
   }
 }
 setInterval(()=>{
@@ -221,8 +231,9 @@ app.get("/api/contacts", wrap(async (req,res)=>{
   res.json({ slug, rows: await contactsOf(slug) });
 }));
 async function contactsOf(slug){
-  if (!contacts.has(slug)){ const s = await contactsRef(slug).get(); contacts.set(slug, s.exists ? (s.data().rows||[]) : []); }
-  return contacts.get(slug);
+  const key = `${listId()}/${slug}`;
+  if (!contacts.has(key)){ const s = await listRef(listId(), slug).get(); contacts.set(key, s.exists ? (s.data().rows||[]) : []); }
+  return contacts.get(key);
 }
 
 app.post("/api/log", wrap(async (req,res)=>{
@@ -232,31 +243,42 @@ app.post("/api/log", wrap(async (req,res)=>{
   const rows = await contactsOf(slug);
   if (!rows.some(x=>x.cid===cid)) return fail(res, 404, "That account isn't on your list.");
   if (!isLive()) return fail(res, 409, "The block isn't running.");
-  const r = R, prev = r.logs.get(cid);
+  const r = R, prev = r.logs.get(cid), key = `${r.id}/${cid}`;
   if (prev?.c) return fail(res, 409, "This call is already logged.");
+  if (logging.has(key)) return fail(res, 409, "This call is already being saved.");
   const log = { rep: slug, c, p, m, pts: ptsFor(c, p, m), n: (prev?.n||0)+1, at: now() };
+  // Points only count once the call is stored, so nobody can spend points that might vanish.
+  logging.add(key);
+  try { await persist(tx=>tx.set(roundRef(r.id).collection("logs").doc(cid), log)); }
+  finally { logging.delete(key); }
   r.logs.set(cid, log);
   broadcast();
-  try { await persist(tx=>tx.set(roundRef(r.id).collection("logs").doc(cid), log)); }
-  catch(e){
-    if (r.logs.get(cid)===log){ prev ? r.logs.set(cid, prev) : r.logs.delete(cid); broadcast(); }
-    throw e;
-  }
   res.json({ ok:true, log, gain: log.pts - (prev?.pts||0) });
 }));
 
-app.post("/api/claim", (req,res)=>{
+app.post("/api/claim", wrap(async (req,res)=>{
   const slug = me(req); if (!slug) return fail(res, 403, "Pick your name first.");
   const id = req.body?.hex;
   if (!HEXIDX.has(id)) return fail(res, 404, "Not a hex.");
   if (!isLive()) return fail(res, 409, "The block isn't running.");
   const why = claimBlock(id, slug, x=>R.hexes[x], earned(slug) - (R.spent[slug]||0), now());
   if (why) return fail(res, 409, why==="yours" ? "Already yours." : cap(why));
-  R.hexes[id] = { o: slug, t: now() };
-  R.spent[slug] = (R.spent[slug]||0) + 1;
-  saveRound(); broadcast();
+  // Take the hex in memory first (so two clicks can't both win it), store it, then answer.
+  const r = R, prev = r.hexes[id], rec = { o: slug, t: now() };
+  r.hexes[id] = rec; r.spent[slug] = (r.spent[slug]||0) + 1;
+  broadcast();
+  try {
+    await persist(tx=>{
+      tx.set(roundRef(r.id).collection("hexes").doc(id), rec);
+      tx.set(roundRef(r.id).collection("players").doc(slug), { spent: inc(1) }, { merge:true });
+    });
+  } catch(e){
+    if (r.hexes[id]===rec){ if (prev) r.hexes[id] = prev; else delete r.hexes[id]; }
+    r.spent[slug]--; broadcast();
+    throw e;
+  }
   res.json({ ok:true });
-});
+}));
 
 // History: one entry per contest that was started, with its final standings.
 app.get("/api/history", wrap(async (req,res)=>{
@@ -318,26 +340,28 @@ app.post("/api/admin/import", admin, wrap(async (req,res)=>{
     if (Buffer.byteLength(JSON.stringify(rows)) > 900_000) return fail(res, 413, `${name}'s list is too big to store (shorten long note columns).`);
     reps.push({ slug, name, rows });
   }
-  // Plays stop now: the current round closes and a fresh lobby round opens.
+  // Write the whole new list next to the old one. If anything fails, the old list stays in use.
+  const newList = "l" + now().toString(36) + crypto.randomBytes(2).toString("hex"), oldList = listId();
+  try { await Promise.all(reps.map(r=>persist(tx=>tx.set(listRef(newList, r.slug), { rows: r.rows })))); }
+  catch(e){ fs.recursiveDelete(listCol(newList)).catch(()=>{}); throw e; }
+  // Switch over: the current round closes (it becomes History) and a fresh lobby round opens.
   const closing = closeRound(R);
   S.game = { status:"lobby", round:newRoundId(), startAt:0, endAt:0 };
   R = emptyRound(S.game.round);
-  broadcast();
-  const old = await ROOT.collection("contacts").listDocuments();
-  await Promise.all(reps.map(r=>persist(tx=>tx.set(contactsRef(r.slug), { rows: r.rows }))));
-  await Promise.all(old.filter(d=>!seen.has(d.id)).map(d=>persist(tx=>tx.delete(d))));
-  // Only once every list is stored does the roster switch over.
-  contacts.clear();
   for (const slug of Object.keys(S.bindings)) if (!seen.has(slug)) delete S.bindings[slug];
-  S.roster = { reps: reps.map(({slug,name})=>({slug,name})), headers: headers.map(String).slice(0,200), fields: fields||{}, at: now() };
-  saveRoot(); broadcast();
+  S.roster = { reps: reps.map(({slug,name})=>({slug,name})), headers: headers.map(String).slice(0,200), fields: fields||{}, at: now(), listId: newList };
+  contacts.clear(); broadcast();
+  await saveRootNow();
   await closing;
+  fs.recursiveDelete(listCol(oldList)).catch(e=>console.error("delete old list", e));
   res.json({ ok:true, reps: reps.length });
 }));
 app.post("/api/admin/clear-contacts", admin, wrap(async (req,res)=>{
-  const docs = await ROOT.collection("contacts").listDocuments();
-  await Promise.all(docs.map(d=>persist(tx=>tx.delete(d))));
-  contacts.clear(); S.roster = { ...S.roster, at: now() }; saveRoot(); broadcast();
+  const oldList = listId();
+  S.roster = { ...S.roster, at: now(), listId: "l" + now().toString(36) + crypto.randomBytes(2).toString("hex") };
+  contacts.clear(); broadcast();
+  await saveRootNow();
+  fs.recursiveDelete(listCol(oldList)).catch(e=>console.error("delete old list", e));
   res.json({ ok:true });
 }));
 app.post("/api/admin/release", admin, (req,res)=>{
@@ -353,9 +377,9 @@ app.post("/api/admin/player", admin, (req,res)=>{
 app.delete("/api/admin/player/:slug", admin, wrap(async (req,res)=>{
   const slug = req.params.slug;
   if (!repOf(slug)) return fail(res, 404, "No such player.");
-  await persist(tx=>tx.delete(contactsRef(slug)));
+  await persist(tx=>tx.delete(listRef(listId(), slug)));
   S.roster = { ...S.roster, reps: S.roster.reps.filter(r=>r.slug!==slug), at: now() };
-  delete S.bindings[slug]; contacts.delete(slug);
+  delete S.bindings[slug]; contacts.delete(`${listId()}/${slug}`);
   saveRoot(); broadcast(); res.json({ ok:true });
 }));
 app.delete("/api/admin/round/:id", admin, wrap(async (req,res)=>{
@@ -364,6 +388,7 @@ app.delete("/api/admin/round/:id", admin, wrap(async (req,res)=>{
   if (R?.id===id && R.meta?.status==="live") return fail(res, 409, "End this block before deleting it.");
   if (retired) return fail(res, 503, "The game was just updated. Try again.");
   unsaved.delete(id);
+  await saving.get(id);                            // let an in-flight save land first, so it can't resurrect the round
   await fs.recursiveDelete(roundRef(id));          // only ever under callblockconquest/main/rounds
   if (R?.id===id) { R = emptyRound(newRoundId()); S.game = { status:"lobby", round:R.id, startAt:0, endAt:0 }; saveRoot(); broadcast(); }
   res.json({ ok:true });
