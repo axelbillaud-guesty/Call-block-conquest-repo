@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Call Block Conquest</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 28,9 28,23 16,30 4,23 4,9' fill='%232b8a3e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -152,6 +153,39 @@ svg.map{width:100%;height:100%;max-height:100%;display:block}
   .clock{font-size:24px}
 }
 @media (prefers-reduced-motion:reduce){.banner.show{animation-duration:.01s;opacity:1}.hex{transition:none}}
+
+/* picker: names already playing somewhere */
+.repGrid button small{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--muted)}
+.repGrid button.me{border-color:var(--ink)}
+.host .row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.host .row .nm{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
+.host .row small{color:var(--muted)}
+.host .row button{font-size:12.5px;padding:3px 9px}
+.host input[type=text]{padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);color:var(--ink);font:inherit}
+
+/* history */
+.dialog.wide{width:min(1040px,100%)}
+.ranges{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 14px}
+.ranges button{border:1px solid var(--line);background:none;border-radius:6px;padding:4px 10px;font-size:13px}
+.ranges button[aria-pressed="true"]{background:var(--btn);color:var(--btnInk);border-color:var(--btn)}
+.ranges input{padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface2);color:var(--ink);font:13px var(--body)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px}
+.tiles div{background:var(--surface2);border-radius:10px;padding:10px 12px}
+.tiles b{display:block;font:700 24px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.tiles span{font-size:12.5px;color:var(--muted)}
+.tblWrap{overflow-x:auto;margin-bottom:18px}
+table.stats{width:100%;border-collapse:collapse;font-size:13.5px}
+table.stats th{font-weight:600;color:var(--muted);text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.stats td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
+table.stats th:first-child,table.stats td:first-child{text-align:left}
+table.stats td .nm{display:inline-flex;align-items:center;gap:7px;font-weight:600}
+.contest{border-bottom:1px solid var(--line);padding:8px 0}
+.contest .top{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:14px}
+.contest .top b{font-weight:600}
+.contest .top .muted{color:var(--muted)}
+.contest .top .grow{flex:1}
+.contest button{font-size:12.5px;padding:3px 9px}
+.contest table{margin-top:8px}
 </style>
 </head>
 <body>
@@ -164,7 +198,8 @@ svg.map{width:100%;height:100%;max-height:100%;display:block}
       <div class="wallet"><b id="bal">0</b><span>pts to spend</span></div>
       <button class="chip" id="meChip" title="Switch player"></button>
     </div>
-    <button class="ghost" id="hostBtn" hidden>Host controls</button>
+    <button class="ghost" id="histBtn">History</button>
+    <button class="ghost" id="hostBtn">Admin</button>
   </header>
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="calls" aria-selected="false">My calls</button>
@@ -202,9 +237,9 @@ svg.map{width:100%;height:100%;max-height:100%;display:block}
 <div class="overlay" id="pickOv" hidden>
   <div class="dialog">
     <h2>Who's dialing?</h2>
-    <p>Pick your name to load your 50 accounts and claim your color.</p>
+    <p>Pick your name to load your accounts and claim your color.</p>
     <div class="repGrid" id="repGrid"></div>
-    <div class="btns" style="margin-top:14px"><button class="ghost" id="watchBtn">Just watch</button></div>
+    <div class="btns" style="margin-top:14px;display:flex;gap:8px"><button class="ghost" id="watchBtn">Just watch</button><span class="spacer"></span><button class="ghost" id="pickClose" hidden>Close</button></div>
   </div>
 </div>
 
@@ -219,78 +254,96 @@ svg.map{width:100%;height:100%;max-height:100%;display:block}
         <button class="primary" id="startBtn">Start the block</button>
         <button class="danger" id="endBtn">End now</button>
       </div>
+      <p style="margin:8px 0 0;font-size:13px">Each block you start is saved as a contest in History.</p>
     </section>
     <section>
       <h3>Call list</h3>
-      <p style="margin:0 0 8px">Upload the CSV. Accounts are matched to the BDR list by the BDR routing column (first names are enough). Importing starts a fresh round and clears the map.</p>
+      <p style="margin:0 0 8px">Upload the CSV. Accounts are matched to players by the BDR routing column (first names are enough). Importing replaces the list and opens a fresh round.</p>
       <input type="file" id="csv" accept=".csv,text/csv">
       <div class="preview" id="csvPrev" hidden></div>
-      <div class="btns" style="margin-top:10px"><button class="primary" id="importBtn" disabled>Import call list</button></div>
+      <div class="btns" style="margin-top:10px"><button class="primary" id="importBtn" disabled>Import call list</button><button class="danger" id="clearBtn">Delete call list</button></div>
     </section>
     <section>
-      <h3>Reset</h3>
-      <div class="btns"><button class="danger" id="resetBtn">Clear map and scores</button></div>
+      <h3>Players</h3>
+      <div id="players"></div>
+      <div class="btns" style="margin-top:10px"><input type="text" id="newName" placeholder="Name" maxlength="80"><button class="primary" id="addBtn">Add player</button></div>
     </section>
-    <div class="btns" style="margin-top:18px;justify-content:flex-end"><button class="ghost" id="hostClose">Close</button></div>
+    <section>
+      <h3>New round</h3>
+      <div class="btns"><button class="danger" id="resetBtn">Clear map and scores</button></div>
+      <p style="margin:8px 0 0;font-size:13px">Past contests stay in History.</p>
+    </section>
+    <div class="btns" style="margin-top:18px;justify-content:flex-end"><button class="ghost" id="adminOut">Leave admin mode</button><button class="ghost" id="hostClose">Close</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="histOv" hidden>
+  <div class="dialog wide">
+    <h2>History</h2>
+    <div class="ranges" id="ranges">
+      <button data-r="today">Today</button>
+      <button data-r="week">This week</button>
+      <button data-r="month" aria-pressed="true">This month</button>
+      <button data-r="lastmonth">Last month</button>
+      <button data-r="all">All time</button>
+      <input type="date" id="hFrom" aria-label="From"> – <input type="date" id="hTo" aria-label="To">
+    </div>
+    <div id="histBody"><p>Loading…</p></div>
+    <div class="btns" style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button class="ghost" id="csvOut">Download CSV</button><button class="ghost" id="histClose">Close</button></div>
   </div>
 </div>
 <div class="tip" id="tip"></div>
 <div class="toast" id="toast"></div>
 
-<script>
-// ---------- config ----------
-const PTS = { call: 1, positive: 5, meeting: 20 };
-const SHIELD_MS = 30000;          // freshly claimed hexes can't be stolen for 30s
+<script type="module">
+import { HEX, HEXIDX, neighbors, ptsFor, SHIELD_MS } from "./map.js";
 const COLORS = ["#e03131","#2b8a3e","#1971c2","#f08c00","#862e9c","#0c8599","#d6336c","#82c91e","#8d5524","#fab005","#20c997","#495057","#ff8787","#66d9e8","#b197fc","#5c940d","#364fc7","#e8590c"];
-
-// ---------- map geometry ----------
-const COLS = 30, ROWS = 19, S3 = Math.sqrt(3);
-function rnd(i){ const x = Math.sin(i*12.9898)*43758.5453; return x - Math.floor(x); }
-const HEX = [];   // {id,c,r,x,y}
-const HEXIDX = new Map();
-for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++){
-  const x=c+0.5*(r&1), y=r*0.866, cx=(COLS-0.5)/2, cy=(ROWS-1)*0.866/2;
-  const dx=(x-cx)/(COLS/2), dy=(y-cy)/((ROWS*0.866)/2), a=Math.atan2(dy,dx);
-  const w=1+0.13*Math.sin(a*3+1.3)+0.09*Math.sin(a*5+0.4)+0.07*(rnd(r*COLS+c)-0.5);
-  if (dx*dx+dy*dy < w*0.92){ const id=`h${c}_${r}`; HEXIDX.set(id, HEX.length); HEX.push({id,c,r,x:S3*(c+0.5*(r&1)),y:1.5*r}); }
-}
-function neighbors(h){
-  const odd = h.r & 1;
-  const d = odd ? [[1,0],[-1,0],[1,-1],[0,-1],[1,1],[0,1]] : [[1,0],[-1,0],[0,-1],[-1,-1],[0,1],[-1,1]];
-  return d.map(([dc,dr])=>`h${h.c+dc}_${h.r+dr}`).filter(id=>HEXIDX.has(id));
-}
 
 // ---------- state ----------
 const st = {
-  db:null, user:null, uid:null, isHost:false, canWrite:true,
+  server:null, connected:false, skew:0, loadedAt:0,
   game:{ status:"lobby", round:null, startAt:0, endAt:0 },
-  roster:{ reps:[], headers:[], fields:{} },
-  myRep:null, watching:false,
-  contacts:[], logs:new Map(), hexes:new Map(), players:new Map(),
+  roster:{ reps:[], headers:[], fields:{} }, taken:{},
+  me:null, myRep:null, watching:false, picking:false, adminCode:"",
+  contacts:[], contactsAt:null, logs:new Map(), hexes:new Map(), spent:{},
+  pendLogs:new Map(), pendHex:new Map(),
   openCid:null, draft:null, filter:"todo",
-  loadedAt: Date.now(), queue: Promise.resolve(), localSpent: 0,
 };
-let unsubRound = [], unsubContacts = null;
 const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try { return JSON.parse(localStorage.getItem("cbc:"+k)); } catch { return null; } },
+  set(k,v){ try { v==null ? localStorage.removeItem("cbc:"+k) : localStorage.setItem("cbc:"+k, JSON.stringify(v)); } catch {} },
+};
+st.me = store.get("me"); st.watching = !!store.get("watching"); st.adminCode = store.get("admin") || "";
 
 // ---------- helpers ----------
-function slugify(s){ return String(s).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60) || "rep"; }
 function repOf(slug){ return st.roster.reps.find(r=>r.slug===slug); }
 function colorOf(slug){ const i = st.roster.reps.findIndex(r=>r.slug===slug); return i<0 ? "var(--muted)" : COLORS[i % COLORS.length]; }
 function nameOf(slug){ return repOf(slug)?.name || "Someone"; }
-function now(){ return Date.now(); }
+function now(){ return Date.now() + st.skew; }
 function isLive(){ return st.game.status==="live" && now() < st.game.endAt; }
 function toast(msg){ const t=$("toast"); t.textContent=msg; t.style.display="block"; clearTimeout(toast._t); toast._t=setTimeout(()=>t.style.display="none",2600); }
 function el(tag, attrs={}, ...kids){ const e=document.createElement(tag); for (const [k,v] of Object.entries(attrs)){ if(k==="class") e.className=v; else if(k.startsWith("on")) e.addEventListener(k.slice(2),v); else if(v!==false && v!=null) e.setAttribute(k, v===true?"":v); } for (const k of kids.flat()) if(k!=null) e.append(k.nodeType?k:document.createTextNode(k)); return e; }
-function ptsFor(c,p,m){ return PTS.call + (p?PTS.positive:0) + (m?PTS.meeting:0); }
 
 function earned(slug){ let s=0; for (const l of st.logs.values()) if (l.rep===slug) s += l.pts||0; return s; }
-function spent(slug){ const p = st.players.get(slug); const v = p?.spent||0; return slug===st.myRep ? Math.max(v, st.localSpent) : v; }
+function spent(slug){ return (st.spent[slug]||0) + (slug===st.myRep ? st.pendHex.size : 0); }
 function territory(slug){ let n=0; for (const h of st.hexes.values()) if (h.o===slug) n++; return n; }
-function balance(){ return st.myRep ? earned(st.myRep) - spent(st.myRep) : 0; }
+function balance(){ return st.myRep ? Math.max(0, earned(st.myRep) - spent(st.myRep)) : 0; }
+
+async function api(path, { body, method } = {}){
+  const headers = { "Content-Type":"application/json" };
+  if (st.me?.token) headers["x-player"] = st.me.token;
+  if (st.adminCode) headers["x-admin"] = st.adminCode;
+  let r;
+  try { r = await fetch(path, { method: method || (body!==undefined ? "POST" : "GET"), headers, body: body!==undefined ? JSON.stringify(body) : undefined }); }
+  catch { throw Object.assign(new Error("Couldn't reach the game. Check your connection."), { status:0 }); }
+  let j = {}; try { j = await r.json(); } catch {}
+  if (!r.ok) throw Object.assign(new Error(j.error || "Something went wrong. Try again."), { status:r.status, data:j });
+  return j;
+}
 
 // ---------- name matching ----------
-function normName(x){ return String(x).normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim(); }
+function normName(x){ return String(x).normalize("NFKD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim(); }
 function matchRep(name){
   const n = normName(name), first = n.split(" ")[0];
   return st.roster.reps.find(r=>normName(r.name)===n)
@@ -388,34 +441,69 @@ function renderMap(){
   }
   const note=$("mapNote");
   let msg="";
-  if (!st.roster.reps.length) msg = "Waiting for the host to import the call list.";
+  if (!st.server) msg = "Connecting to the game…";
+  else if (!st.roster.reps.length) msg = "Waiting for the host to add players.";
   else if (st.game.status!=="live") msg = "The map unlocks when the host starts the block.";
   else if (!isLive()) msg = "Time's up. Biggest territory wins.";
   else if (st.myRep && territory(st.myRep)===0 && balance()>0) msg = "Drop your flag: click any free hex.";
   note.hidden=!msg; note.textContent=msg; ctx=null;
 }
 
+// ---------- server state ----------
+// The server pushes the whole game on every change. Pending local actions are layered on top
+// so clicks feel instant; the next push settles them.
+function derive(){
+  const s = st.server; if (!s) return;
+  st.game = s.game; st.roster = s.roster; st.taken = s.taken || {};
+  st.logs = new Map(s.round?.logs || []);
+  st.hexes = new Map(Object.entries(s.round?.hexes || {}));
+  st.spent = s.round?.spent || {};
+  for (const [k,v] of st.pendLogs) st.logs.set(k,v);
+  for (const [k,v] of st.pendHex) st.hexes.set(k,v);
+  schedule();
+}
+function applyState(s){
+  st.skew = s.now - Date.now();
+  if (!st.loadedAt) st.loadedAt = s.now;
+  const prev = st.server;
+  if (prev && prev.round?.id===s.round?.id){
+    const old = new Map(prev.round?.logs || []);
+    for (const [cid,l] of s.round?.logs || []) if (l.m && l.rep!==st.myRep && !old.get(cid)?.m && l.at>st.loadedAt) showBanner(l.rep, s.roster);
+  }
+  st.server = s; derive();
+
+  // Am I still holding my name? (someone may have taken it over, or the host released it)
+  if (st.me && !st.picking){
+    if (st.taken[st.me.slug]===st.me.id){ st.myRep = st.me.slug; }
+    else {
+      const was = repOf(st.me.slug)?.name;
+      st.me=null; st.myRep=null; store.set("me", null); st.contacts=[]; st.contactsAt=null;
+      if (was) toast(`${was} is now playing in another browser.`);
+      openPicker();
+    }
+  }
+  if (st.myRep && st.contactsAt!==st.roster.at) loadContacts();
+  if (!st.myRep && !st.watching && !st.picking && st.roster.reps.length && $("pickOv").hidden && !openPicker.shown) openPicker();
+}
+async function loadContacts(){
+  const at = st.roster.at; st.contactsAt = at;
+  try { const r = await api("/api/contacts"); if (r.slug===st.myRep){ st.contacts = r.rows; schedule(); } }
+  catch(e){ st.contactsAt = null; }
+}
+function connect(){
+  const es = new EventSource("/api/events");
+  es.addEventListener("state", e => { st.connected=true; applyState(JSON.parse(e.data)); });
+  es.onerror = () => { st.connected=false; schedule(); };
+}
+
 // ---------- claiming ----------
-function claim(id){
+async function claim(id){
   const why = whyNot(id);
   if (why){ if (why!=="yours") toast(why[0].toUpperCase()+why.slice(1)+"."); return; }
-  const prev = st.hexes.get(id);
-  const rec = { o: st.myRep, t: now(), by: st.uid };
-  st.hexes.set(id, rec);            // optimistic
-  st.localSpent = spent(st.myRep) + 1;
-  const spentNow = st.localSpent, slug = st.myRep, round = st.game.round;
-  schedule();
-  st.queue = st.queue.then(async ()=>{
-    try {
-      await st.db.doc(`rounds/${round}/hexes/${id}`).set(rec);
-      await st.db.doc(`rounds/${round}/players/${slug}`).set({ spent: spentNow, at: now() });
-    } catch(e){ st.hexes.set(id, prev); st.localSpent--; schedule(); toast(writeErr(e)); }
-  });
-}
-function writeErr(e){
-  if (e?.code==="invalid_argument") return "You can view this game but not play. Ask the host for Contributor access.";
-  if (e?.code==="quota_exceeded") return "The game database is full. Ask the host to reset.";
-  return "Couldn't save. Check your connection and try again.";
+  st.pendHex.set(id, { o: st.myRep, t: now() }); derive();
+  try { await api("/api/claim", { body:{ hex:id } }); }
+  catch(e){ toast(e.message); }
+  finally { st.pendHex.delete(id); derive(); }
 }
 
 // ---------- call list ----------
@@ -427,7 +515,7 @@ function contactStatus(cid){
   if (l.c) return ["s-neg","Negative"];
   return ["s-nc","No answer"];
 }
-function v(row, key){ const h = st.roster.fields[key]; return h ? String(row[h]??"").trim() : ""; }
+function v(row, key){ const h = st.roster.fields?.[key]; return h ? String(row[h]??"").trim() : ""; }
 function contactName(row){ const n = [v(row,"first"), v(row,"last")].filter(Boolean).join(" "); return n || v(row,"company") || "Unnamed contact"; }
 
 function renderCalls(){
@@ -461,7 +549,7 @@ function toggleCard(cid){
   renderCalls();
 }
 function callCard(c){
-  const row=c.row, f=st.roster.fields, l=st.logs.get(c.cid), locked = !!l?.c;
+  const row=c.row, f=st.roster.fields||{}, l=st.logs.get(c.cid), locked = !!l?.c;
   const card = el("div",{class:"card"});
   const tags = [v(row,"tier"), v(row,"listings") && `${v(row,"listings")} listings`, v(row,"pms") && `PMS: ${v(row,"pms")}`, v(row,"lastAct") && `Last activity: ${v(row,"lastAct")}`].filter(Boolean);
   card.append(el("div",{class:"meta"}, tags.map(t=>el("span",{class:"tag"},t))));
@@ -475,7 +563,7 @@ function callCard(c){
   const noteKeys = [["demo","Demo notes"],["sdr","SDR comments"],["handover","Discovery handover"]];
   for (const [k,label] of noteKeys) if (v(row,k)) notes.append(el("div",{class:"note"}, el("dt",{},f[k]||label), el("dd",{},v(row,k))));
   const known = new Set(Object.values(f));
-  for (const h of st.roster.headers) if (!known.has(h) && String(row[h]??"").trim()) notes.append(el("div",{class:"note"}, el("dt",{},h), el("dd",{},String(row[h]).trim())));
+  for (const h of st.roster.headers||[]) if (!known.has(h) && String(row[h]??"").trim()) notes.append(el("div",{class:"note"}, el("dt",{},h), el("dd",{},String(row[h]).trim())));
   card.append(notes);
 
   const d = st.draft;
@@ -509,13 +597,12 @@ function setAns(key,val){
 async function logCall(cid){
   const d=st.draft, prev=st.logs.get(cid);
   const c=!!d.c, p=c&&!!d.p, m=c&&!!d.m;
-  const rec = { rep: st.myRep, c, p, m, pts: ptsFor(c,p,m), n:(prev?.n||0)+1, at: now(), by: st.uid };
-  st.logs.set(cid, rec);
+  st.pendLogs.set(cid, { rep: st.myRep, c, p, m, pts: ptsFor(c,p,m), n:(prev?.n||0)+1, at: now() });
+  st.openCid=null; st.draft=null; derive();
   if (m) showBanner(st.myRep);
-  st.openCid=null; st.draft=null; schedule();
-  toast(`+${rec.pts - (prev?.pts||0)} pts. Go claim some ground.`);
-  try { await st.db.doc(`rounds/${st.game.round}/logs/${cid}`).set(rec); }
-  catch(e){ if (prev) st.logs.set(cid,prev); else st.logs.delete(cid); schedule(); toast(writeErr(e)); }
+  try { const r = await api("/api/log", { body:{ cid, c, p, m } }); toast(`+${r.gain} pts. Go claim some ground.`); }
+  catch(e){ toast(e.message); }
+  finally { st.pendLogs.delete(cid); derive(); }
 }
 
 // ---------- standings ----------
@@ -544,20 +631,21 @@ function renderSide(){
 function renderHeader(){
   const g=st.game, t=now();
   let main="--:--", sub="";
-  if (!st.db) sub="Offline";
+  if (!st.server) sub="Connecting…";
   else if (g.status==="live" && t<g.endAt){ const s=Math.max(0,Math.ceil((g.endAt-t)/1000)); main=`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`; sub="Remaining"; }
   else if (g.status==="live"){ main="0:00"; sub="Final"; }
   else { sub = st.roster.reps.length ? "Lobby" : "Setting up"; }
+  if (st.server && !st.connected) sub = "Reconnecting…";
   $("clock").firstChild.nodeValue = main; $("phase").textContent = sub;
   $("meBox").hidden = !st.myRep && !st.watching;
   $("bal").textContent = st.myRep ? balance() : "–";
   const chip=$("meChip"); chip.textContent="";
   chip.append(el("i",{class:"dot",style:`background:${st.myRep?colorOf(st.myRep):"var(--muted)"}`}), st.myRep ? nameOf(st.myRep) : "Watching");
-  $("hostBtn").hidden = !st.isHost;
+  $("hostBtn").textContent = st.adminCode ? "Host controls" : "Admin";
 }
 
 let raf=0;
-function schedule(){ if (raf) return; raf=requestAnimationFrame(()=>{ raf=0; renderHeader(); renderMap(); renderCalls(); renderSide(); }); }
+function schedule(){ if (raf) return; raf=requestAnimationFrame(()=>{ raf=0; renderHeader(); renderMap(); renderCalls(); renderSide(); if (!$("hostOv").hidden) renderHost(); }); }
 setInterval(()=>{ renderHeader(); if (st.game.status==="live") renderMap(); }, 1000);
 
 // ---------- celebration ----------
@@ -569,31 +657,74 @@ function showBanner(slug){
 
 // ---------- player pick ----------
 function openPicker(){
+  openPicker.shown = true;
   const g=$("repGrid"); g.textContent="";
-  if (!st.roster.reps.length) g.append(el("p",{},"The host hasn't imported the call list yet. Check back in a minute."));
-  for (const r of st.roster.reps) g.append(el("button",{onclick:()=>pickRep(r.slug)}, el("i",{class:"dot",style:`background:${colorOf(r.slug)}`}), r.name));
+  if (!st.roster.reps.length) g.append(el("p",{},"The host hasn't added players yet. Check back in a minute."));
+  for (const r of st.roster.reps){
+    const mine = r.slug===st.myRep, taken = !mine && !!st.taken[r.slug];
+    g.append(el("button",{class: mine?"me":"", onclick:()=>pickRep(r.slug)},
+      el("i",{class:"dot",style:`background:${colorOf(r.slug)}`}), r.name, mine ? el("small",{},"you") : taken ? el("small",{},"playing") : null));
+  }
+  $("pickClose").hidden = !st.myRep && !st.watching;
   $("pickOv").hidden=false;
 }
-async function pickRep(slug){
-  $("pickOv").hidden=true; st.myRep=slug; st.watching=false; st.localSpent=0; subContacts(); schedule();
-  if (st.uid) try { await st.db.doc(`data/users/${st.uid}/me`).set({ rep: slug }); } catch(e){}
+async function pickRep(slug, takeover=false){
+  if (slug===st.myRep){ $("pickOv").hidden=true; return; }
+  st.picking = true;
+  try {
+    const r = await api("/api/pick", { body:{ slug, takeover } });
+    st.me = r; store.set("me", r); st.myRep = slug; st.watching=false; store.set("watching", null);
+    st.contacts=[]; st.contactsAt=null; st.openCid=null; st.draft=null;
+    $("pickOv").hidden=true; loadContacts(); schedule();
+  } catch(e){
+    if (e.status===409 && e.data?.error==="taken"){
+      if (confirm(`${nameOf(slug)} is already playing in another browser.\n\nIs this you? Continuing moves your game to this browser.`)) { st.picking=false; return pickRep(slug, true); }
+    } else toast(e.message);
+  } finally { st.picking = false; }
 }
-$("watchBtn").onclick = async ()=>{ $("pickOv").hidden=true; st.myRep=null; st.watching=true; subContacts(); schedule();
-  if (st.uid) try { await st.db.doc(`data/users/${st.uid}/me`).set({ rep: null, watching:true }); } catch(e){} };
+$("watchBtn").onclick = async ()=>{
+  $("pickOv").hidden=true;
+  if (st.me) try { await api("/api/leave", { body:{} }); } catch {}
+  st.me=null; st.myRep=null; store.set("me", null); st.watching=true; store.set("watching", true); st.contacts=[]; schedule();
+};
+$("pickClose").onclick = ()=> $("pickOv").hidden=true;
 $("meChip").onclick = openPicker;
 
 // ---------- host ----------
 let parsed=null;
-$("hostBtn").onclick = ()=>{ renderHost(); $("hostOv").hidden=false; };
+$("hostBtn").onclick = async ()=>{
+  if (!st.adminCode){
+    const code = (prompt("Admin code") || "").trim(); if (!code) return;
+    st.adminCode = code;
+    try { await api("/api/admin/check", { body:{} }); store.set("admin", code); }
+    catch(e){ st.adminCode=""; toast(e.message); return; }
+    renderHeader();
+  }
+  renderHost(); $("hostOv").hidden=false;
+};
 $("hostClose").onclick = ()=> $("hostOv").hidden=true;
+$("adminOut").onclick = ()=>{ st.adminCode=""; store.set("admin", null); $("hostOv").hidden=true; renderHeader(); };
+async function adminCall(path, opts){
+  try { return await api(path, opts); }
+  catch(e){ if (e.status===401){ st.adminCode=""; store.set("admin", null); $("hostOv").hidden=true; renderHeader(); } toast(e.message); throw e; }
+}
 function renderHost(){
   const g=st.game;
-  $("hostState").textContent = !st.roster.reps.length ? "Start by importing the call list."
+  $("hostState").textContent = !st.roster.reps.length ? "Start by adding players or importing the call list."
     : g.status==="live" && now()<g.endAt ? `Live. Ends at ${new Date(g.endAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}.`
-    : g.status==="live" ? "The block has ended. Final standings are on the board."
-    : `${st.roster.reps.length} reps loaded. Ready when you are.`;
+    : g.status==="live" ? "The block has ended. Final standings are on the board and in History."
+    : `${st.roster.reps.length} players. Ready when you are.`;
   $("startBtn").disabled = !st.roster.reps.length;
+  const box=$("players"); box.textContent="";
+  for (const r of st.roster.reps) box.append(el("div",{class:"row"},
+    el("span",{class:"nm"}, el("i",{class:"dot",style:`background:${colorOf(r.slug)}`}), r.name, st.taken[r.slug] ? el("small",{},"· playing") : null),
+    st.taken[r.slug] ? el("button",{class:"ghost", title:"Frees the name so it can be picked again", onclick:()=>adminCall("/api/admin/release",{ body:{ slug:r.slug } }).catch(()=>{})},"Release") : null,
+    el("button",{class:"danger", onclick:()=>{ if (confirm(`Remove ${r.name} and their call list?`)) adminCall(`/api/admin/player/${encodeURIComponent(r.slug)}`,{ method:"DELETE" }).catch(()=>{}); }},"Remove")));
 }
+$("addBtn").onclick = async ()=>{
+  const n=$("newName").value.trim(); if (!n) return;
+  try { await adminCall("/api/admin/player", { body:{ name:n } }); $("newName").value=""; } catch {}
+};
 $("csv").onchange = e => {
   const file=e.target.files[0]; if (!file) return;
   Papa.parse(file, { header:true, skipEmptyLines:"greedy", complete: res => {
@@ -602,58 +733,151 @@ $("csv").onchange = e => {
     const prev=$("csvPrev"); prev.hidden=false; prev.textContent="";
     if (!fields.bdr){ prev.textContent="Couldn't find the BDR routing column. Name it something like “BDR Routing”."; $("importBtn").disabled=true; parsed=null; return; }
     const groups = new Map();   // slug -> {name, rows, isNew}
-    for (const r of st.roster.reps) groups.set(r.slug, { name:r.name, rows:[], isNew:false });
+    for (const r of st.roster.reps) groups.set(r.slug, { slug:r.slug, name:r.name, rows:[], isNew:false });
     for (const row of res.data){
       const who = String(row[fields.bdr]??"").trim(); if (!who) continue;
       const clean={}; for (const h of headers) if (h!==fields.bdr){ const val=String(row[h]??"").trim(); if (val) clean[h]=val.slice(0,3000); }
       const hit = matchRep(who);
-      const slug = hit ? hit.slug : "new-" + slugify(who);
-      if (!groups.has(slug)) groups.set(slug, { name: who, rows:[], isNew:true });
-      groups.get(slug).rows.push(clean);
+      const key = hit ? hit.slug : "new:" + normName(who);
+      if (!groups.has(key)) groups.set(key, { slug:null, name: who, rows:[], isNew:true });
+      groups.get(key).rows.push(clean);
     }
-    parsed = { headers: headers.filter(h=>h!==fields.bdr), fields, groups };
-    const all=[...groups.entries()];
-    const total=all.reduce((a,[,g])=>a+g.rows.length,0);
-    const matched=all.filter(([,g])=>!g.isNew && g.rows.length), empty=all.filter(([,g])=>!g.isNew && !g.rows.length), extra=all.filter(([,g])=>g.isNew);
-    prev.append(el("div",{},`${total} accounts. ${matched.length} of ${st.roster.reps.length} BDRs matched.`),
-      el("div",{style:"margin-top:6px"}, matched.map(([,g])=>`${g.name} (${g.rows.length})`).join(", ") || "No BDRs matched."));
-    if (empty.length) prev.append(el("div",{style:"margin-top:6px;color:var(--bad)"}, "No accounts for: " + empty.map(([,g])=>g.name).join(", ")));
-    if (extra.length) prev.append(el("div",{style:"margin-top:6px;color:var(--bad)"}, "Not in the BDR list, will be added as new players: " + extra.map(([,g])=>`${g.name} (${g.rows.length})`).join(", ")));
+    const { bdr, ...rest } = fields;
+    parsed = { headers: headers.filter(h=>h!==fields.bdr), fields: rest, groups };
+    const all=[...groups.values()];
+    const total=all.reduce((a,g)=>a+g.rows.length,0);
+    const matched=all.filter(g=>!g.isNew && g.rows.length), empty=all.filter(g=>!g.isNew && !g.rows.length), extra=all.filter(g=>g.isNew);
+    prev.append(el("div",{},`${total} accounts. ${matched.length} of ${st.roster.reps.length} players matched.`),
+      el("div",{style:"margin-top:6px"}, matched.map(g=>`${g.name} (${g.rows.length})`).join(", ") || "No players matched."));
+    if (empty.length) prev.append(el("div",{style:"margin-top:6px;color:var(--bad)"}, "No accounts for: " + empty.map(g=>g.name).join(", ")));
+    if (extra.length) prev.append(el("div",{style:"margin-top:6px;color:var(--bad)"}, "Not in the player list, will be added as new players: " + extra.map(g=>`${g.name} (${g.rows.length})`).join(", ")));
     prev.append(el("div",{style:"margin-top:6px;color:var(--muted)"}, "Matched columns: " + Object.values(fields).join(", ")));
     $("importBtn").disabled=false;
   }});
 };
 $("importBtn").onclick = async ()=>{
   if (!parsed) return;
-  if (st.game.status==="live" && now()<st.game.endAt && !confirm("The block is live. Importing starts a fresh round and wipes the map. Continue?")) return;
+  if (isLive() && !confirm("The block is live. Importing ends it and opens a fresh round. Continue?")) return;
   const btn=$("importBtn"); btn.disabled=true; btn.textContent="Importing…";
   try{
-    const reps=[];
-    for (const [slug, g] of parsed.groups){
-      reps.push({ slug, name: g.name });
-      await st.db.doc(`contacts/${slug}`).set({ rows: g.rows.map((r,i)=>({ cid:`${slug}--${i}`, row:r })) });
-    }
-    await st.db.doc("game/roster").set({ reps, headers: parsed.headers, fields: parsed.fields, at: now() });
-    await st.db.doc("game/state").set({ status:"lobby", round:"r"+now().toString(36), startAt:0, endAt:0 });
-    toast(`Imported ${reps.length} reps.`); parsed=null; $("csv").value=""; $("csvPrev").hidden=true;
-  } catch(e){ toast(writeErr(e)); }
-  btn.textContent="Import call list"; renderHost();
+    const r = await adminCall("/api/admin/import", { body:{ headers: parsed.headers, fields: parsed.fields, groups: [...parsed.groups.values()].map(({slug,name,rows})=>({slug,name,rows})) } });
+    toast(`Imported lists for ${r.reps} players.`); parsed=null; $("csv").value=""; $("csvPrev").hidden=true;
+  } catch {}
+  btn.textContent="Import call list";
+};
+$("clearBtn").onclick = async ()=>{
+  if (!confirm("Delete every player's call list? Players, scores and History stay.")) return;
+  try { await adminCall("/api/admin/clear-contacts", { body:{} }); toast("Call list deleted."); } catch {}
 };
 $("startBtn").onclick = async ()=>{
   const mins = Math.max(5, Math.min(240, +$("dur").value || 60));
-  const round = st.game.status==="live" ? "r"+now().toString(36) : (st.game.round || "r"+now().toString(36));
-  if (st.game.status==="live" && !confirm("Restart the clock? This starts a fresh round and clears the map.")) return;
-  try { await st.db.doc("game/state").set({ status:"live", round, startAt:now(), endAt:now()+mins*60000 }); $("hostOv").hidden=true; }
-  catch(e){ toast(writeErr(e)); }
+  if (isLive() && !confirm("Restart the clock? This ends the current block and starts a fresh one.")) return;
+  try { await adminCall("/api/admin/start", { body:{ mins } }); $("hostOv").hidden=true; } catch {}
 };
 $("endBtn").onclick = async ()=>{
-  if (st.game.status!=="live") return toast("The block isn't running.");
-  try { await st.db.doc("game/state").set({ ...st.game, endAt: now() }); renderHost(); } catch(e){ toast(writeErr(e)); }
+  if (!isLive()) return toast("The block isn't running.");
+  if (!confirm("End the block now?")) return;
+  try { await adminCall("/api/admin/end", { body:{} }); } catch {}
 };
 $("resetBtn").onclick = async ()=>{
-  if (!confirm("Clear the map and all scores? The call list stays.")) return;
-  try { await st.db.doc("game/state").set({ status:"lobby", round:"r"+now().toString(36), startAt:0, endAt:0 }); renderHost(); toast("Fresh round ready."); }
-  catch(e){ toast(writeErr(e)); }
+  if (!confirm("Clear the map and scores? The call list stays, and past contests stay in History.")) return;
+  try { await adminCall("/api/admin/reset", { body:{} }); toast("Fresh round ready."); } catch {}
+};
+
+// ---------- history ----------
+const H = { range:"month", rounds:[], open:new Set() };
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+function rangeDates(r){
+  const t = new Date(), y=t.getFullYear(), m=t.getMonth();
+  if (r==="today") return [ymd(t), ymd(t)];
+  if (r==="week"){ const s=new Date(t); s.setDate(t.getDate()-((t.getDay()+6)%7)); return [ymd(s), ymd(t)]; }
+  if (r==="month") return [ymd(new Date(y,m,1)), ymd(t)];
+  if (r==="lastmonth") return [ymd(new Date(y,m-1,1)), ymd(new Date(y,m,0))];
+  return ["", ""];
+}
+async function loadHistory(){
+  const from=$("hFrom").value, to=$("hTo").value;
+  $("histBody").textContent=""; $("histBody").append(el("p",{},"Loading…"));
+  try { const r = await api(`/api/history?from=${from}&to=${to}`); H.rounds = r.rounds; renderHistory(); }
+  catch(e){ $("histBody").textContent=""; $("histBody").append(el("p",{},e.message)); }
+}
+function setRange(r){
+  H.range=r; for (const b of $("ranges").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.r===r));
+  const [a,b] = rangeDates(r); $("hFrom").value=a; $("hTo").value=b; loadHistory();
+}
+$("ranges").onclick = e => { const r=e.target?.dataset?.r; if (r) setRange(r); };
+$("hFrom").onchange = $("hTo").onchange = ()=>{ H.range=null; for (const b of $("ranges").querySelectorAll("button")) b.setAttribute("aria-pressed","false"); loadHistory(); };
+$("histBtn").onclick = ()=>{ $("histOv").hidden=false; setRange(H.range || "month"); };
+$("histClose").onclick = ()=> $("histOv").hidden=true;
+
+function histName(slug, round){ return repOf(slug)?.name || round?.reps?.find(x=>x.slug===slug)?.name || slug; }
+function aggregate(){
+  const by = new Map();
+  for (const r of H.rounds) for (const x of r.summary.rows){
+    const a = by.get(x.slug) || by.set(x.slug, { slug:x.slug, name: histName(x.slug, r), contests:0, wins:0, dials:0, connects:0, positives:0, demos:0, pts:0, hexes:0 }).get(x.slug);
+    a.contests++; if (x.rank===1 && r.status==="done") a.wins++;
+    for (const k of ["dials","connects","positives","demos","pts","hexes"]) a[k]+=x[k]||0;
+  }
+  return [...by.values()].sort((a,b)=> b.pts-a.pts || b.wins-a.wins || a.name.localeCompare(b.name));
+}
+const fmtTime = ms => new Date(ms).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+function standingsTable(rows, round){
+  const cols = [["Player"],["Hexes","hexes"],["Points","pts"],["Dials","dials"],["Connects","connects"],["Positive","positives"],["Demos","demos"]];
+  return el("div",{class:"tblWrap"}, el("table",{class:"stats"},
+    el("thead",{}, el("tr",{}, cols.map(([h])=>el("th",{},h)))),
+    el("tbody",{}, rows.map(x=>el("tr",{},
+      el("td",{}, el("span",{class:"nm"}, el("i",{class:"dot",style:`background:${colorOf(x.slug)}`}), `${x.rank}. ${histName(x.slug, round)}`)),
+      cols.slice(1).map(([,k])=>el("td",{}, String(x[k]||0))))))));
+}
+function renderHistory(){
+  const body=$("histBody"); body.textContent="";
+  const rounds = H.rounds;
+  if (!rounds.length){ body.append(el("p",{},"No contests in this period yet. Each block the host starts shows up here.")); return; }
+  const agg = aggregate();
+  const sum = k => agg.reduce((a,x)=>a+x[k],0);
+  const dials=sum("dials"), connects=sum("connects");
+  body.append(el("div",{class:"tiles"},
+    el("div",{}, el("b",{},String(rounds.length)), el("span",{},"contests")),
+    el("div",{}, el("b",{},String(dials)), el("span",{},"dials")),
+    el("div",{}, el("b",{},String(connects)), el("span",{}, `connects · ${dials?Math.round(100*connects/dials):0}%`)),
+    el("div",{}, el("b",{},String(sum("positives"))), el("span",{},"positive calls")),
+    el("div",{}, el("b",{},String(sum("demos"))), el("span",{},"demos booked")),
+    el("div",{}, el("b",{},String(sum("pts"))), el("span",{},"points"))));
+  const cols = [["Player"],["Contests","contests"],["Wins","wins"],["Dials","dials"],["Connects","connects"],["Positive","positives"],["Demos","demos"],["Points","pts"],["Hexes","hexes"]];
+  body.append(el("h3",{style:"font:700 15px var(--display);margin:0 0 6px"},"By player"),
+    el("div",{class:"tblWrap"}, el("table",{class:"stats"},
+      el("thead",{}, el("tr",{}, cols.map(([h])=>el("th",{},h)))),
+      el("tbody",{}, agg.map(x=>el("tr",{},
+        el("td",{}, el("span",{class:"nm"}, el("i",{class:"dot",style:`background:${colorOf(x.slug)}`}), x.name)),
+        cols.slice(1).map(([,k])=>el("td",{}, String(x[k])))))))));
+  body.append(el("h3",{style:"font:700 15px var(--display);margin:0 0 6px"},"Contests"));
+  for (const r of rounds){
+    const s = r.summary, w = s.winner, open = H.open.has(r.id);
+    const tot = k => s.rows.reduce((a,x)=>a+(x[k]||0),0);
+    body.append(el("div",{class:"contest"},
+      el("div",{class:"top"},
+        el("b",{}, `${r.date} · ${fmtTime(r.startAt)}`),
+        el("span",{class:"muted"}, `${r.mins} min${r.status==="live"?" · live now":""}`),
+        w ? el("span",{class:"nm",style:"display:inline-flex;align-items:center;gap:6px"}, el("i",{class:"dot",style:`background:${colorOf(w)}`}), `${r.status==="live"?"Leading":"Winner"}: ${histName(w, r)}`) : el("span",{class:"muted"},"No plays"),
+        el("span",{class:"muted"}, `${tot("dials")} dials · ${tot("demos")} demos`),
+        el("span",{class:"grow"}),
+        el("button",{class:"ghost", onclick:()=>{ open ? H.open.delete(r.id) : H.open.add(r.id); renderHistory(); }}, open?"Hide":"Details"),
+        st.adminCode && r.status!=="live" ? el("button",{class:"danger", onclick:()=>deleteRound(r)},"Delete") : null),
+      open ? standingsTable(s.rows, r) : null));
+  }
+}
+async function deleteRound(r){
+  if (!confirm(`Delete the ${r.date} ${fmtTime(r.startAt)} contest from History? This can't be undone.`)) return;
+  try { await adminCall(`/api/admin/round/${r.id}`, { method:"DELETE" }); toast("Contest deleted."); loadHistory(); } catch {}
+}
+$("csvOut").onclick = ()=>{
+  const head = ["date","start","minutes","contest","player","rank","hexes","points","dials","connects","positive","demos"];
+  const q = x => { const s=String(x??""); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+  const lines = [head.join(",")];
+  for (const r of [...H.rounds].reverse()) for (const x of r.summary.rows)
+    lines.push([r.date, fmtTime(r.startAt), r.mins, r.id, histName(x.slug, r), x.rank, x.hexes, x.pts, x.dials, x.connects, x.positives, x.demos].map(q).join(","));
+  const a = el("a",{ href: URL.createObjectURL(new Blob([lines.join("\n")], { type:"text/csv" })), download:`call-block-history-${$("hFrom").value||"all"}_${$("hTo").value||"all"}.csv` });
+  document.body.append(a); a.click(); a.remove();
 };
 
 // ---------- tabs (narrow screens) ----------
@@ -663,57 +887,7 @@ document.querySelectorAll(".tabs button").forEach(b=> b.onclick = ()=>{
 });
 $("filters").onclick = e => { const f=e.target?.dataset?.f; if (!f) return; st.filter=f; for (const b of $("filters").children) b.setAttribute("aria-pressed", String(b.dataset.f===f)); renderCalls(); };
 
-// ---------- subscriptions ----------
-function subRound(){
-  unsubRound.forEach(u=>u()); unsubRound=[];
-  st.logs=new Map(); st.hexes=new Map(); st.players=new Map(); st.localSpent=0;
-  const r = st.game.round; if (!r){ schedule(); return; }
-  let first=true;
-  unsubRound.push(st.db.collection(`rounds/${r}/logs`).onSnapshot(s=>{
-    const fresh = new Map(); for (const d of s.docs) fresh.set(d.id, d.data());
-    if (!first) for (const ch of s.docChanges()){ const l=ch.doc.data(); if (ch.type!=="removed" && l?.m && l.at>st.loadedAt && l.rep!==st.myRep && !st.logs.get(ch.doc.id)?.m) showBanner(l.rep); }
-    first=false; st.logs=fresh; schedule();
-  }, ()=>{}));
-  unsubRound.push(st.db.collection(`rounds/${r}/hexes`).onSnapshot(s=>{
-    const m=new Map(); for (const d of s.docs) m.set(d.id, d.data()); st.hexes=m; schedule();
-  }, ()=>{}));
-  unsubRound.push(st.db.collection(`rounds/${r}/players`).onSnapshot(s=>{
-    const m=new Map(); for (const d of s.docs) m.set(d.id, d.data()); st.players=m; schedule();
-  }, ()=>{}));
-}
-function subContacts(){
-  if (unsubContacts) unsubContacts(); unsubContacts=null; st.contacts=[];
-  if (!st.myRep){ schedule(); return; }
-  unsubContacts = st.db.doc(`contacts/${st.myRep}`).onSnapshot(s=>{ st.contacts = s.exists ? (s.data().rows||[]) : []; schedule(); }, ()=>{});
-}
-
-async function init(){
-  buildMap(); schedule();
-  const use = n => (window.claude && window.claude.use) ? window.claude.use(n) : Promise.resolve(null);
-  const [db, user] = await Promise.all([use("db"), use("user")]);
-  if (!db){ $("phase").textContent="Sign in to play"; const n=$("mapNote"); n.hidden=false; n.textContent="Open this link signed in to claude.ai with your work account to join the game."; return; }
-  st.db=db; st.user=user;
-  st.uid = user ? await user.id() : null;
-  st.isHost = user ? await user.canEdit() : false;
-  let gotRoster=false, gotMe=!st.uid;
-  const maybePick = ()=>{ if (gotRoster && gotMe && !st.myRep && !st.watching && st.roster.reps.length) openPicker(); };
-  db.doc("game/state").onSnapshot(s=>{
-    const g = s.exists ? s.data() : { status:"lobby", round:null, startAt:0, endAt:0 };
-    const changed = g.round !== st.game.round; st.game = g;
-    if (changed) subRound(); if (!$("hostOv").hidden) renderHost(); schedule();
-  }, ()=>{});
-  db.doc("game/roster").onSnapshot(s=>{
-    st.roster = s.exists ? s.data() : { reps:[], headers:[], fields:{} };
-    if (!st.roster.fields) st.roster.fields={}; if (!st.roster.headers) st.roster.headers=[];
-    if (st.myRep && !repOf(st.myRep)){ st.myRep=null; subContacts(); if (st.roster.reps.length) openPicker(); }
-    gotRoster=true; maybePick(); if (!$("hostOv").hidden) renderHost(); schedule();
-  }, ()=>{});
-  if (st.uid){
-    try { const me = await db.doc(`data/users/${st.uid}/me`).get(); if (me.exists){ st.myRep = me.data().rep || null; st.watching = !!me.data().watching; } } catch(e){}
-    gotMe=true; if (st.myRep && st.roster.reps.length && !repOf(st.myRep)) st.myRep=null; subContacts(); maybePick(); schedule();
-  }
-}
-init();
+buildMap(); schedule(); connect();
 </script>
 </body>
 </html>

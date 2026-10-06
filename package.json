@@ -1,0 +1,15 @@
+{
+  "name": "call-block-conquest",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "CBC_MEMORY=1 ADMIN_CODE=dev PORT=3000 node server.js",
+    "test": "node test/smoke.js"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.11.0",
+    "express": "^5.1.0"
+  }
+}
