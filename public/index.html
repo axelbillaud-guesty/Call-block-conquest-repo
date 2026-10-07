@@ -331,13 +331,16 @@ function territory(slug){ let n=0; for (const h of st.hexes.values()) if (h.o===
 function balance(){ return st.myRep ? Math.max(0, earned(st.myRep) - spent(st.myRep)) : 0; }
 
 async function api(path, { body, method } = {}, retry = true){
-  const headers = { "Content-Type":"application/json" };
+  // X-Requested-With makes the Google sign-in gate (IAP) answer 401 instead of redirecting
+  // when the sign-in session has expired, so we can notice and renew it.
+  const headers = { "Content-Type":"application/json", "X-Requested-With":"XMLHttpRequest" };
   if (st.me?.token) headers["x-player"] = st.me.token;
   if (st.adminCode) headers["x-admin"] = st.adminCode;
   let r;
   try { r = await fetch(path, { method: method || (body!==undefined ? "POST" : "GET"), headers, body: body!==undefined ? JSON.stringify(body) : undefined }); }
   catch { throw Object.assign(new Error("Couldn't reach the game. Check your connection."), { status:0 }); }
   let j = {}; try { j = await r.json(); } catch {}
+  if (r.status===401 && !j.error) renewSignIn();     // the game's own 401s always carry an error message
   // 503: the server is handing over to a newly deployed version. Try once more.
   if (r.status===503 && retry){ await new Promise(ok=>setTimeout(ok, 1500)); return api(path, { body, method }, false); }
   if (!r.ok) throw Object.assign(new Error(j.error || "Something went wrong. Try again."), { status:r.status, data:j });
@@ -483,11 +486,30 @@ async function loadContacts(){
   try { const r = await api("/api/contacts"); if (r.slug===st.myRep){ st.contacts = r.rows; schedule(); } }
   catch(e){ st.contactsAt = null; }
 }
+// Reloading sends the browser back through Google sign-in, which renews the session.
+// The game lives on the server, so nothing is lost.
+// At most once a minute, so a server that's really down doesn't cause a reload loop.
+function renewSignIn(){
+  if (renewSignIn.done) return false;
+  let last = 0; try { last = +sessionStorage.getItem("cbc:renewed") || 0; } catch {}
+  if (Date.now() - last < 60000) return false;
+  renewSignIn.done = true;
+  try { sessionStorage.setItem("cbc:renewed", String(Date.now())); } catch {}
+  toast("Refreshing your sign-in…"); setTimeout(()=>location.reload(), 800);
+  return true;
+}
+let streamFails = 0;
 function connect(){
   const es = new EventSource("/api/events");
-  es.addEventListener("state", e => { st.connected=true; applyState(JSON.parse(e.data)); });
+  es.addEventListener("state", e => { st.connected=true; streamFails=0; applyState(JSON.parse(e.data)); });
   // The browser gives up on a stream after an error response (e.g. during a redeploy): reopen it.
-  es.onerror = () => { st.connected=false; schedule(); if (es.readyState===EventSource.CLOSED) setTimeout(connect, 2000); };
+  es.onerror = () => {
+    st.connected=false; schedule();
+    if (es.readyState!==EventSource.CLOSED) return;
+    // A stream that keeps failing usually means the sign-in session expired.
+    if (++streamFails >= 3 && renewSignIn()) return;
+    setTimeout(connect, Math.min(30000, 2000 * streamFails));
+  };
 }
 
 // ---------- claiming ----------
