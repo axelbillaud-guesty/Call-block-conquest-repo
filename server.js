@@ -205,6 +205,8 @@ function adminOk(req){
 const admin = (req,res,next) => adminOk(req) ? next() : fail(res, 401, "Wrong admin code.");
 const wrap = fn => (req,res,next) => Promise.resolve(fn(req,res,next)).catch(next);
 
+app.get("/api/ping", (req,res)=> res.json({ ok:true }));
+
 app.get("/api/events", (req,res)=>{
   if (retired) return fail(res, 503, "Reconnecting.");
   res.set({ "Content-Type":"text/event-stream", "Cache-Control":"no-cache, no-transform", "Connection":"keep-alive", "X-Accel-Buffering":"no" });

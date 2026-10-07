@@ -199,6 +199,9 @@ try {
     assert.ok(!s.round.logs.some(([,l])=>l.rep===fresh.slug), "no inherited calls");
     assert.ok(s.round.logs.some(([,l])=>l.rep==="carmen"), "old play stays with the old player");
   });
+  await t("ping answers for the sign-in check", async ()=>{
+    assert.deepEqual((await call("/api/ping")).json, { ok:true });
+  });
   await t("serves the page and map module", async ()=>{
     const html = await (await fetch(BASE+"/")).text();
     assert.match(html, /Call Block Conquest/);

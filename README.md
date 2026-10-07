@@ -4,7 +4,7 @@ A live game for BDR call blocks. Reps log their calls to earn points and spend t
 
 ## Playing
 
-1. Open the link and **pick your name**. There's no login. The name stays with that browser.
+1. Open the link, sign in with your **Guesty Google account** if asked, and **pick your name**. The name stays with that browser.
    - If you open the game in another browser, pick your name again and confirm. The game moves to the new browser.
    - Not playing? Choose **Just watch**.
 2. When the host starts the block, open an account in **My calls**, answer the three questions and press **Log call**.
@@ -54,6 +54,7 @@ In **History**, pick a range (today, this week, this month, last month, all time
 
   Every Firestore reference in the code is built from that root, so the app can't touch other collections.
 - Contest dates use the `GAME_TZ` time zone (default `Europe/Madrid`).
+- Access is limited to Guesty Google accounts by Identity-Aware Proxy (IAP), which IT turned on for the service. If someone's IAP session expires mid-block, the page reloads once to renew it (game state is on the server, so nothing is lost).
 
 ## Local development
 
@@ -69,8 +70,9 @@ npm test        # end-to-end checks against the in-memory store
 gcloud run deploy call-block-conquest --source . \
   --project agentic-workflows-485210 --region europe-west1 \
   --max-instances 1 --concurrency 500 --timeout 3600 --memory 512Mi \
-  --no-invoker-iam-check \
   --update-env-vars ADMIN_CODE=<code>,GAME_TZ=Europe/Madrid
 ```
+
+Build from a fresh clone of `main`, always pass `--region`, and only name the env vars you're changing (`--update-env-vars`, never `--set-env-vars`). For a code-only redeploy, leave the env flags out. Don't pass access flags: IT manages access through IAP.
 
 To change the admin code, redeploy with a new `ADMIN_CODE`. Admins will be asked for the new code the next time they open Host controls.
