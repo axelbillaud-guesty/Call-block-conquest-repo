@@ -340,7 +340,10 @@ async function api(path, { body, method } = {}, retry = true){
   try { r = await fetch(path, { method: method || (body!==undefined ? "POST" : "GET"), headers, body: body!==undefined ? JSON.stringify(body) : undefined }); }
   catch { throw Object.assign(new Error("Couldn't reach the game. Check your connection."), { status:0 }); }
   let j = {}; try { j = await r.json(); } catch {}
-  if (r.status===401 && !j.error) renewSignIn();     // the game's own 401s always carry an error message
+  // The game's own 401s (wrong admin code) always carry an error message; a bare 401 is the
+  // sign-in gate saying the session expired. That one gets its own status so callers don't
+  // mistake it for a wrong admin code.
+  if (r.status===401 && !j.error){ renewSignIn(); throw Object.assign(new Error("Refreshing your sign-in…"), { status:"signin" }); }
   // 503: the server is handing over to a newly deployed version. Try once more.
   if (r.status===503 && retry){ await new Promise(ok=>setTimeout(ok, 1500)); return api(path, { body, method }, false); }
   if (!r.ok) throw Object.assign(new Error(j.error || "Something went wrong. Try again."), { status:r.status, data:j });
@@ -498,6 +501,10 @@ function renewSignIn(){
   toast("Refreshing your sign-in…"); setTimeout(()=>location.reload(), 800);
   return true;
 }
+async function signedOut(){
+  try { const r = await fetch("/api/ping", { headers:{ "X-Requested-With":"XMLHttpRequest" } }); return r.status===401; }
+  catch { return false; }
+}
 let streamFails = 0;
 function connect(){
   const es = new EventSource("/api/events");
@@ -506,9 +513,10 @@ function connect(){
   es.onerror = () => {
     st.connected=false; schedule();
     if (es.readyState!==EventSource.CLOSED) return;
-    // A stream that keeps failing usually means the sign-in session expired.
-    if (++streamFails >= 3 && renewSignIn()) return;
-    setTimeout(connect, Math.min(30000, 2000 * streamFails));
+    // When the stream keeps failing, ask the server why: only an expired sign-in triggers a
+    // reload. A server that's down or mid-redeploy just gets retried, with growing gaps.
+    if (++streamFails >= 3) signedOut().then(out => { if (!(out && renewSignIn())) setTimeout(connect, Math.min(30000, 2000 * streamFails)); });
+    else setTimeout(connect, 2000);
   };
 }
 
